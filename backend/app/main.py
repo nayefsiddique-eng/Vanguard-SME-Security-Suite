@@ -6,6 +6,7 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
+import time
 
 from app.db.database import engine, Base
 from app.core.config import ALLOWED_ORIGINS
@@ -14,6 +15,10 @@ from app.core.config import ALLOWED_ORIGINS
 from app.api.routes_auth import router as auth_router
 from app.api.routes_scan import router as scan_router
 from app.api.routes_history import router as history_router
+from app.api.routes_incidents import router as incidents_router
+from app.api.routes_assets import router as assets_router
+from app.api.routes_iocs import router as iocs_router
+from app.api.routes_observability import router as observability_router
 
 Base.metadata.create_all(bind=engine)
 
@@ -41,7 +46,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include APIs
+# API Version 1 endpoints
 app.include_router(auth_router)
 app.include_router(scan_router)
 app.include_router(history_router)
+app.include_router(incidents_router)
+app.include_router(assets_router)
+app.include_router(iocs_router)
+app.include_router(observability_router)
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    return response

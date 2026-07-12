@@ -11,13 +11,13 @@ from app.db.models import ScanHistory
 from app.schemas.schemas import URLScanRequest, NetworkScanRequest, EmailScanRequest, UPIScanRequest, ScanResult
 from app.core.security import get_current_user
 
-# Scanner imports
 from app.services.clamav_scanner import scan_file
 from app.services.virustotal import check_url
 from app.services.nmap_scanner import scan as scan_ports
 from app.services.email_analyser import analyse_header
 from app.services.ai_client import get_ai_analysis
 from app.services.alerts import generate_alerts
+from app.services.correlation import correlate_scan_event
 
 router = APIRouter()
 
@@ -37,6 +37,8 @@ async def scan_file_endpoint(
         
         result = scan_file(temp_path)
         result["target"] = file.filename
+        
+        correlate_scan_event("File Scan", file.filename, result, db)
         
         scan_record = ScanHistory(
             scan_type="File Scan",
@@ -58,6 +60,7 @@ async def scan_url_endpoint(
     db: Session = Depends(get_db)
 ):
     result = check_url(body.url)
+    correlate_scan_event("Phishing (URL)", body.url, result, db)
     
     scan_record = ScanHistory(
         scan_type="Phishing (URL)",
@@ -77,6 +80,7 @@ async def scan_network_endpoint(
 ):
     result = scan_ports(body.target)
     generate_alerts(result)
+    correlate_scan_event("Network Scan", body.target, result, db)
     
     scan_record = ScanHistory(
         scan_type="Network Scan",
@@ -98,6 +102,7 @@ async def scan_email_endpoint(
     ai_resp = get_ai_analysis(result)
     result["summary"] = ai_resp["summary"]
     result["actions"] = ai_resp["actions"]
+    correlate_scan_event("Phishing (Email)", "Email Headers", result, db)
     
     scan_record = ScanHistory(
         scan_type="Phishing (Email)",
@@ -153,6 +158,8 @@ async def scan_upi_endpoint(
                 ]
             }
             
+    correlate_scan_event("UPI Check", body.upi_id, result, db)
+    
     scan_record = ScanHistory(
         scan_type="UPI Check",
         target=body.upi_id,

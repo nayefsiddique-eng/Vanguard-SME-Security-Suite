@@ -16,6 +16,8 @@ import {
   Hexagon,
   Menu,
   X,
+  AlertCircle,
+  Server,
 } from "lucide-react";
 
 interface NavItem {
@@ -26,6 +28,8 @@ interface NavItem {
 
 const menuItems: NavItem[] = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { label: "Incidents", href: "/incidents", icon: AlertCircle },
+  { label: "Assets", href: "/assets", icon: Server },
   { label: "Phishing", href: "/phishing", icon: Link2 },
   { label: "Ransomware", href: "/ransomware", icon: Shield },
   { label: "UPI Verifier", href: "/upi", icon: CreditCard },
