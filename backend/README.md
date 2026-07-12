@@ -61,5 +61,5 @@ Vanguard SME Security Suite is a unified, multi-vector cybersecurity platform de
    ```
 3. **Launch API**:
    ```bash
-   uvicorn main:app --reload
+   uvicorn app.main:app --reload
    ```

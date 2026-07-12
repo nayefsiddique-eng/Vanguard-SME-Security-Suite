@@ -1,4 +1,4 @@
-def generate_pdf_report(incident: dict, timeline: list) -> str:
+def generate_text_report(incident: dict, timeline: list) -> str:
     report = []
     report.append("VANGUARD SME SECURITY SUITE - INCIDENT REPORT")
     report.append("============================================")

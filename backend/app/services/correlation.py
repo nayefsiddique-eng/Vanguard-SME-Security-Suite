@@ -22,13 +22,14 @@ def extract_and_store_iocs(target: str, ioc_type: str, scan_result: dict, db: Se
         existing_ioc.reputation_score = max(existing_ioc.reputation_score, reputation)
         db.commit()
 
-def link_incident_and_timeline(title: str, severity: str, assets: list[str], recommendations: list[str], db: Session) -> Incident:
+def link_incident_and_timeline(title: str, severity: str, assets: list[str], recommendations: list[str], mitre_map: dict, db: Session) -> Incident:
     new_incident = Incident(
         title=title,
         severity=severity,
         status="Open",
         affected_assets=json.dumps(assets),
-        recommendations=json.dumps(recommendations)
+        recommendations=json.dumps(recommendations),
+        mitre_mapping=json.dumps(mitre_map)
     )
     db.add(new_incident)
     db.commit()
@@ -72,10 +73,15 @@ def correlate_scan_event(scan_type: str, target: str, result: dict, db: Session)
             
     # 3. Create Incident if Dangerous/Infected
     if verdict in ("DANGEROUS", "INFECTED", "PHISHING") or severity in ("High", "Critical"):
+        from app.services.mitre_mapper import map_to_mitre
+        tool_name = result.get("tool", "unknown")
+        mitre_data = map_to_mitre(tool_name, verdict)
+        
         link_incident_and_timeline(
             title=f"Potential Attack vector flagged on {target}",
             severity=severity,
             assets=[target],
             recommendations=result.get("actions", []),
+            mitre_map=mitre_data,
             db=db
         )

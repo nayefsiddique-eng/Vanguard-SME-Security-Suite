@@ -207,7 +207,7 @@ export default function ReportsPage() {
               </button>
             ))}
           </div>
-          <Button variant="ghost" size="sm">Export PDF</Button>
+          <Button variant="ghost" size="sm">Export Text Report</Button>
         </Card>
 
         {/* Results */}

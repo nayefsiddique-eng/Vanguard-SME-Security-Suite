@@ -46,3 +46,10 @@ Build the optimized production bundle with:
 npm run build
 npm start
 ```
+
+---
+
+## Project Status & Limitations (Honesty Section)
+
+- **Local Scanner Fallbacks**: Scans such as Network Open Ports are performed via real system execution where Nmap CLI is available. In environments without Nmap installed or when targets time out, the backend seamlessly falls back to a clean socket-based TCP port scanner to prevent failure.
+- **Explainable Threat Logic**: The threat analysis report leverages deterministic indicators mapping (SPF alignment, ports count, domain age metrics) and aggregates evidence without relying on unpredictable external models, preventing hallucination bugs.
