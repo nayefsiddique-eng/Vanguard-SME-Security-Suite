@@ -1,0 +1,14 @@
+# Dependency directories
+backend/__pycache__/
+backend/.pytest_cache/
+backend/.env
+backend/*.db
+frontend/node_modules/
+frontend/.next/
+frontend/.env.local
+
+# IDEs and OS
+.idea/
+.vscode/
+Thumbs.db
+.DS_Store
