@@ -87,3 +87,30 @@ def update_incident_status(
         
     db.commit()
     return {"message": "Incident updated successfully"}
+
+from fastapi import Response
+from app.services.text_reports import generate_text_report
+
+@router.get("/{incident_id}/text")
+def export_text_report(
+    incident_id: int,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(require_role(["Admin", "SOC Analyst", "Threat Hunter"]))
+):
+    inc = db.query(Incident).filter(Incident.id == incident_id).first()
+    if not inc:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    timeline = db.query(IncidentTimeline).filter(IncidentTimeline.incident_id == incident_id).all()
+    
+    incident_dict = {
+        "id": inc.id,
+        "title": inc.title,
+        "severity": inc.severity,
+        "status": inc.status,
+        "assigned_analyst": inc.assigned_analyst,
+        "recommendations": json.loads(inc.recommendations) if inc.recommendations else []
+    }
+    timeline_list = [{"timestamp": t.timestamp.isoformat() if hasattr(t.timestamp, "isoformat") else str(t.timestamp), "description": t.description} for t in timeline]
+    
+    report_str = generate_text_report(incident_dict, timeline_list)
+    return Response(content=report_str, media_type="text/plain")

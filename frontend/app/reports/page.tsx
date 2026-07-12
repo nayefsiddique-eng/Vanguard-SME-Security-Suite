@@ -86,6 +86,45 @@ export default function ReportsPage() {
   const [timeFilter, setTimeFilter] = React.useState<TimeFilter>("month");
   const [expandedId, setExpandedId] = React.useState<string | null>(null);
 
+  const handleExportTextReport = async () => {
+    try {
+      const token = localStorage.getItem("cyberguard-token") || "";
+      const incRes = await fetch(`${API_URL}/api/v1/incidents`, {
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      if (incRes.ok) {
+        const incidentsList = await incRes.json();
+        if (incidentsList.length > 0) {
+          const firstIncidentId = incidentsList[0].id;
+          const reportRes = await fetch(`${API_URL}/api/v1/incidents/${firstIncidentId}/text`, {
+            headers: { "Authorization": `Bearer ${token}` }
+          });
+          if (reportRes.ok) {
+            const text = await reportRes.text();
+            const blob = new Blob([text], { type: "text/plain" });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `incident_report_${firstIncidentId}.txt`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+          } else {
+            alert("No text report available for the selected incident.");
+          }
+        } else {
+          alert("No active incidents found to export.");
+        }
+      } else {
+        alert("Failed to fetch incidents list.");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error exporting report.");
+    }
+  };
+
   React.useEffect(() => {
     async function loadScans() {
       try {
@@ -207,7 +246,7 @@ export default function ReportsPage() {
               </button>
             ))}
           </div>
-          <Button variant="ghost" size="sm">Export Text Report</Button>
+          <Button variant="ghost" size="sm" onClick={handleExportTextReport}>Export Text Report</Button>
         </Card>
 
         {/* Results */}
