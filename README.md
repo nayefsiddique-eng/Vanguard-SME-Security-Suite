@@ -1,133 +1,334 @@
-﻿# 🛡️ Vanguard SME Security Suite
+﻿<div align="center">
 
-**A unified cybersecurity scanning and posture-monitoring platform built for small businesses — personal portfolio project.**
+# 🛡️ Vanguard SME Security Suite
 
-![Next.js](https://img.shields.io/badge/Next.js-000000?style=flat&logo=next.js&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat&logo=fastapi&logoColor=white)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=flat&logo=postgresql&logoColor=white)
-![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat&logo=typescript&logoColor=white)
-![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=flat&logo=python&logoColor=white)
+**A unified cybersecurity scanning and posture-monitoring platform for small and medium businesses**
 
----
+[![Next.js](https://img.shields.io/badge/Next.js-14-000000?style=flat&logo=next.js&logoColor=white)](https://nextjs.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.110-009688?style=flat&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=flat&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=flat&logo=python&logoColor=white)](https://www.python.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![License](https://img.shields.io/badge/License-Unlicensed-lightgrey?style=flat)]()
 
-## 📋 Table of Contents
-- [What This Is](#what-this-is)
-- [Features](#features)
-- [Architecture](#architecture)
-- [Tech Stack](#tech-stack)
-- [Screenshots](#screenshots)
-- [Getting Started](#getting-started)
-- [Known Limitations & Roadmap](#known-limitations--roadmap)
-- [License](#license)
+*Personal portfolio project — not a commercial product*
+
+[Overview](#project-overview) • [Features](#key-features) • [Architecture](#architecture) • [Getting Started](#getting-started) • [Roadmap](#roadmap)
+
+</div>
 
 ---
 
-## What This Is
+## Project Overview
 
-Vanguard SME Security Suite is a full-stack security platform that lets a small business owner run five different security checks — file/malware, URL, network, phishing email, and UPI payment fraud — from one dashboard, then automatically correlates the results into a running security posture score. Suspicious findings are auto-escalated into incidents mapped against real MITRE ATT&CK tactics/techniques, with plain-language explanations for every verdict.
+Small and medium businesses are frequent targets of phishing, malware, network intrusion, and payment fraud, but rarely have the budget or staffing for a dedicated security operations team. Existing tools tend to be either enterprise SIEM platforms priced and built for large security teams, or single-purpose consumer tools (one antivirus, one phishing checker) that never talk to each other.
+
+Vanguard SME Security Suite consolidates five common attack-surface checks — file/malware, malicious URLs, network exposure, phishing email, and UPI payment fraud — into a single authenticated dashboard, then correlates the results into one running security posture score instead of five disconnected reports. High-severity findings are automatically escalated into incidents tagged against real MITRE ATT&CK tactics and techniques.
+
+This project was built as a portfolio/IEEE-track demonstration of full-stack security engineering — API design, authentication, threat-detection integration, and correlation logic — not as a production SOC platform.
 
 ---
 
-## Features
+## Key Features
 
-**Detection Tools**
-- 🦠 **File/Malware Scan** — ClamAV-based scanning of uploaded files
-- 🔗 **URL Scanner** — VirusTotal-backed reputation and threat lookup
-- 🌐 **Network Scanner** — Nmap-based port/service exposure scanning
-- ✉️ **Email/Phishing Analyzer** — SPF/DKIM/DMARC validation, lookalike-domain and brand-impersonation detection
-- 💳 **UPI Fraud Check** — Format/handle validation with fraud-pattern heuristics (ownership verification is out of scope — see Limitations)
+### Core Detection
 
-**Security Posture & Correlation**
-- 📈 Rolling **Security Posture Score** trend chart aggregating scan history over time
-- 🔄 **IOC Correlation Engine** — automatically links related findings and escalates them into incidents
-- 🎯 **MITRE ATT&CK Mapping** — every high-severity incident is tagged with a real tactic/technique (e.g. `Discovery → Network Service Discovery (T1046)`), verified working end-to-end against live scan data
+| Module | What it does | Backing technology |
+|---|---|---|
+| File / Malware Scan | Scans uploaded files for known malware signatures | ClamAV |
+| URL Scanner | Checks URLs against reputation/threat databases | VirusTotal API |
+| Network Scanner | Scans a target for open ports and exposed services | Nmap |
+| Email / Phishing Analyzer | Validates SPF/DKIM/DMARC, flags lookalike domains and brand impersonation | Custom heuristic engine |
+| UPI Fraud Check | Validates UPI handle format and flags known fraud patterns | Custom heuristic engine (format-level only) |
 
-**Explainability**
-- 🔍 **Detection Signals Panel** — an expandable "how we know" breakdown for every verdict, showing the actual signals that triggered it instead of a black-box score
+### Correlation & Posture
 
-**Auth & Access**
-- 🔐 JWT-based authentication
-- 👥 Role-based access control (RBAC) with roles including SOC Analyst, Threat Hunter, and Admin
+| Feature | Description |
+|---|---|
+| Security Posture Score | Rolling trend score aggregated from historical scan results across all five tools |
+| IOC Correlation Engine | Links related findings across scans and auto-escalates matches into incidents |
+| MITRE ATT&CK Mapping | High-severity incidents are tagged with real ATT&CK tactic/technique IDs — verified working against live scan data |
 
-**Reporting**
-- 📄 One-click **text incident report export** for any flagged incident
+### Explainability
+
+| Feature | Description |
+|---|---|
+| Detection Signals Panel | Expandable per-result breakdown showing the specific signals behind a verdict, rather than an opaque score |
+
+### Access & Reporting
+
+| Feature | Description |
+|---|---|
+| JWT Authentication | Token-based auth on all protected routes |
+| Role-Based Access Control | Roles include SOC Analyst, Threat Hunter, Admin |
+| Rate Limiting | Per-endpoint request throttling via SlowAPI |
+| Text Incident Report Export | One-click plain-text report generation for any incident |
+
+> **Note:** This project does not currently include enterprise features (multi-tenant orgs, SSO, SIEM integrations), trained ML/AI models, or scheduled/automated scanning. See Roadmap for what is intentionally out of scope today.
 
 ---
 
 ## Architecture
 
 ```mermaid
-flowchart LR
-    User[User Browser] --> FE[Next.js Frontend]
-    FE -->|JWT Auth| API[FastAPI Backend]
-    API --> Auth[Auth & RBAC]
-    API --> Scan[Scan Services]
-    Scan --> ClamAV[ClamAV]
-    Scan --> VT[VirusTotal]
-    Scan --> Nmap[Nmap]
-    Scan --> Email[Email Analyzer]
-    Scan --> UPI[UPI Checker]
+flowchart TB
+    User([User]) --> FE[Next.js Frontend]
+    FE -->|JWT Bearer Auth| API[FastAPI Backend]
+
+    API --> Auth[Auth and RBAC Layer]
+    API --> Routes[API Routes]
+
+    Routes --> Scan[Scan Services]
+    Scan --> ClamAV[ClamAV Engine]
+    Scan --> VT[VirusTotal Client]
+    Scan --> Nmap[Nmap Scanner]
+    Scan --> Email[Email/Phishing Analyzer]
+    Scan --> UPI[UPI Format Checker]
+
     Scan --> Correlation[IOC Correlation Engine]
     Correlation --> MITRE[MITRE ATT&CK Mapper]
     Correlation --> DB[(PostgreSQL)]
-    API --> Reports[Text Report Export]
+
+    Routes --> Reports[Text Report Generator]
+    Routes --> DB
+```
+
+### Request Flow
+
+```
+User -> Frontend (Next.js) -> Backend (FastAPI, JWT-verified)
+     -> Scan Service (ClamAV / VirusTotal / Nmap / Email / UPI)
+     -> Correlation Engine -> MITRE Mapper -> PostgreSQL
+     -> Result returned to Dashboard
 ```
 
 ---
 
-## Tech Stack
+## Technology Stack
 
-| Frontend | Backend |
+| Layer | Technology |
 |---|---|
-| Next.js (App Router) | FastAPI |
-| React | SQLAlchemy |
-| TypeScript | PostgreSQL |
-| Tailwind CSS | JWT (python-jose) |
-| Recharts | bcrypt |
-| Lucide Icons | SlowAPI (rate limiting) |
+| Frontend Framework | Next.js (App Router), React, TypeScript |
+| Styling | Tailwind CSS |
+| Charts | Recharts |
+| Backend Framework | FastAPI (Python 3.12) |
+| Database | PostgreSQL via SQLAlchemy |
+| Authentication | JWT (python-jose), bcrypt |
+| Rate Limiting | SlowAPI |
+| Malware Scanning | ClamAV |
+| Threat Intelligence | VirusTotal API |
+| Network Scanning | Nmap |
+| Deployment | Not yet containerized |
 
 ---
 
 ## Screenshots
 
-> 📸 Add real screenshots here before publishing — placeholders below.
+> Add real screenshots to `docs/screenshots/` before publishing. Placeholders below.
 
-![Dashboard](docs/screenshots/dashboard.png)
-![Scan Result](docs/screenshots/scan-result.png)
+| View | Image |
+|---|---|
+| Dashboard | `![Dashboard](docs/screenshots/dashboard.png)` |
+| Scan Result | `![Scan Result](docs/screenshots/scan-result.png)` |
+| Incident Report | `![Incident](docs/screenshots/incident.png)` |
 
 ---
 
 ## Getting Started
 
+### Prerequisites
+- Node.js 18+
+- Python 3.12
+- PostgreSQL 14+
+
+### 1. Clone
+
 ```bash
-# Clone
 git clone https://github.com/nayefsiddique-eng/vanguard-sme-suite.git
 cd vanguard-sme-suite
+```
 
-# Install everything (frontend + backend deps)
+### 2. Install dependencies
+
+```bash
 npm run install:all
+```
 
-# Configure environment
+### 3. Configure environment
+
+```bash
 cp backend/.env.example backend/.env
-# Fill in DATABASE_URL, SECRET_KEY (generate with: python -c "import secrets; print(secrets.token_hex(32))")
+```
 
-# Run both services
+Then fill in `backend/.env`:
+
+```
+DATABASE_URL=postgresql://user:password@localhost:5432/vanguard
+SECRET_KEY=<generate with: python -c "import secrets; print(secrets.token_hex(32))">
+```
+
+### 4. Run
+
+```bash
 npm run dev
 ```
 
-Frontend: `http://localhost:3000` · Backend: `http://localhost:8000`
+Frontend: `http://localhost:3000`
+Backend docs (Swagger): `http://localhost:8000/docs`
 
 ---
 
-## Known Limitations & Roadmap
+## API Reference
 
-- **UPI verification is format-only** — validates handle structure, not actual PSP-side ownership
-- **Reports export as plain text**, not PDF
-- **No database migration tooling** — schema is managed via `create_all`, fine for portfolio scale, not production-ready
-- **Audit logging** is modeled in the schema but not yet fully wired for all actions
+| Method | Endpoint | Description | Auth Required |
+|---|---|---|---|
+| POST | `/register` | Create a new user account | No |
+| POST | `/login` | Authenticate and receive a JWT | No |
+| POST | `/api/scan/file` | Submit a file for malware scanning | Yes |
+| POST | `/api/scan/url` | Submit a URL for reputation check | Yes |
+| POST | `/api/scan/network` | Submit a target for port/service scan | Yes |
+| POST | `/api/scan/email` | Submit email headers for phishing analysis | Yes |
+| POST | `/api/scan/upi` | Submit a UPI handle for fraud check | Yes |
+| GET | `/scan-history` | Retrieve the current users scan history | Yes |
+| GET | `/incidents` | Retrieve correlated incidents | Yes |
+| GET | `/api/reports/{incident_id}/text` | Export a text report for an incident | Yes |
+
+---
+
+## Folder Structure
+
+```
+vanguard-sme-suite/
+├── backend/
+│   ├── app/
+│   │   ├── api/            # Route handlers (scan, auth, incidents, history)
+│   │   ├── core/           # Config, security (JWT/hashing), RBAC
+│   │   ├── db/              # SQLAlchemy models and database session
+│   │   ├── schemas/         # Pydantic request/response models
+│   │   ├── services/        # Scanner integrations, correlation, MITRE mapping
+│   │   └── main.py          # FastAPI app instance
+│   ├── test_main.py
+│   └── requirements.txt
+├── frontend/
+│   ├── app/                 # Next.js pages (dashboard, phishing, ransomware, upi, reports)
+│   ├── components/cyber/    # Scan result cards, risk badges, posture chart
+│   ├── hooks/ lib/           # Shared frontend utilities
+│   └── package.json
+├── docs/
+│   └── screenshots/          # Place real screenshots here
+└── package.json               # Monorepo dev/install scripts
+```
+
+---
+
+## Security Modules
+
+**ClamAV File Scanner** — Purpose: detect known malware signatures. Input: uploaded file. Output: verdict + matched signature.
+
+**VirusTotal URL Scanner** — Purpose: check URLs against threat intel. Input: URL string. Output: verdict + detection ratio.
+
+**Nmap Network Scanner** — Purpose: identify open ports/services. Input: target host. Output: port list + exposure summary.
+
+**Email/Phishing Analyzer** — Purpose: detect phishing/impersonation. Input: email headers. Output: SPF/DKIM/DMARC results + flags.
+
+**UPI Fraud Checker** — Purpose: flag suspicious UPI handles. Input: UPI string. Output: format validity + capped-confidence risk verdict. Does not verify real ownership.
+
+**IOC Correlation Engine** — Purpose: link findings across scans into incidents. Input: scan results. Output: incident records with MITRE mapping.
+
+---
+
+## AI & Automated Reasoning
+
+This project does not use trained machine learning models or datasets. "Explainability" refers to structured, rule-based signal surfacing, not a predictive model. This is intentional scoping.
+
+---
+
+## Dashboard
+
+| Widget | What it shows |
+|---|---|
+| Security Posture Score | Rolling score trend line from scan history |
+| Recent Scans | Latest results across all five tools |
+| Incidents | Auto-correlated incidents with MITRE ATT&CK tags |
+| Detection Signals | Expandable explanation of triggering signals |
+
+---
+
+## Project Highlights
+
+- Five independent detection tools unified behind one authenticated API and one posture score
+- Real, verified MITRE ATT&CK mapping confirmed producing actual tactic/technique data from live scans
+- Honest scoping: format-only UPI checks and text-only reports documented as limitations rather than glossed over
+
+---
+
+## Roadmap
+
+**Completed**
+- [x] JWT auth + RBAC across all protected routes
+- [x] Five scan tool integrations
+- [x] IOC correlation engine with auto-incident creation
+- [x] MITRE ATT&CK mapping (verified end-to-end)
+- [x] Security posture trend dashboard
+- [x] Explainable detection-signals panel
+- [x] Text-based incident report export
+
+**In Progress**
+- [ ] Database migration tooling
+- [ ] Full audit log wiring for all user actions
+
+**Future**
+- [ ] Real UPI ownership verification via PSP-side API
+- [ ] PDF report export
+- [ ] Docker containerization
+- [ ] CI pipeline
+
+---
+
+## Benchmarks
+
+Benchmark results will be published once formal load/accuracy testing is conducted. None are available at this time.
+
+---
+
+## Contributing
+
+This is currently a personal portfolio project and not actively seeking external contributions. Feel free to open an issue for bugs or suggestions.
 
 ---
 
 ## License
 
-No license file yet — all rights reserved by default until one is added.
+No license file has been added yet. All rights reserved by default until one is chosen.
+
+---
+
+## Acknowledgements
+
+- [ClamAV](https://www.clamav.net/)
+- [VirusTotal](https://www.virustotal.com/)
+- [Nmap](https://nmap.org/)
+- [MITRE ATT&CK](https://attack.mitre.org/)
+- [FastAPI](https://fastapi.tiangolo.com/), [Next.js](https://nextjs.org/), [shadcn/ui](https://ui.shadcn.com/)
+
+---
+
+## Author
+
+**Nayef Siddique**
+Chair, IEEE Computer Society Student Branch
+[GitHub](https://github.com/nayefsiddique-eng)
+
+---
+
+## Support
+
+For issues or questions, please open a GitHub issue.
+
+---
+
+<div align="center">
+
+*Built as part of ongoing cybersecurity and AI portfolio development.*
+
+</div>
