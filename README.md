@@ -1,4 +1,4 @@
-﻿<div align="center">
+<div align="center">
 
 # 🛡️ Vanguard SME Security Suite
 
@@ -313,11 +313,13 @@ No license file has been added yet. All rights reserved by default until one is 
 
 ---
 
-## Author
+## Authors
 
-**Nayef Siddique**
-Chair, IEEE Computer Society Student Branch
-[GitHub](https://github.com/nayefsiddique-eng)
+1. **Mohammed Nayef Siddique** (Chair, IEEE Computer Society Student Branch | [GitHub](https://github.com/nayefsiddique-eng))
+2. **Noor Laiba Maheen**
+3. **Sobiya Ayaz**
+4. **Nadira Fatima Sireen Sultana**
+5. **Mohammed Ameen Ul Haq**
 
 ---
 
