@@ -95,3 +95,23 @@ class ScanResult(BaseModel):
     threat_name: Optional[str] = None
     threat_type: Optional[str] = None
     raw_ports: Optional[List[dict]] = None
+    ml_prediction: Optional["MLPredictionSchema"] = None
+
+
+class FeatureImportanceItem(BaseModel):
+    feature: str
+    importance: float
+
+
+class MLPredictionSchema(BaseModel):
+    label: str
+    confidence: float
+    confidence_pct: int
+    explanation: str
+    feature_importances: List[FeatureImportanceItem]
+    model_name: str
+    raw_scores: Optional[dict] = None
+
+
+# Required for forward reference resolution
+ScanResult.model_rebuild()

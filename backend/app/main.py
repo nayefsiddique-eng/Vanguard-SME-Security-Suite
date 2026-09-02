@@ -19,12 +19,25 @@ from app.api.routes_incidents import router as incidents_router
 from app.api.routes_assets import router as assets_router
 from app.api.routes_iocs import router as iocs_router
 from app.api.routes_observability import router as observability_router
+from app.api.routes_ml import router as ml_router
+
+# ML startup
+from app.ml.trainer import ensure_models_ready
 
 Base.metadata.create_all(bind=engine)
 
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app):
+    # Train ML models at startup (no-op if models already exist on disk)
+    ensure_models_ready()
+    yield
+
 app = FastAPI(
     title="Vanguard SME Security Suite API",
-    description="Backend API for Vanguard SME Security Suite, a unified multi-vector cybersecurity scanning and rolling posture assessment platform."
+    description="Backend API for Vanguard SME Security Suite, a unified multi-vector cybersecurity scanning and rolling posture assessment platform.",
+    lifespan=lifespan,
 )
 
 limiter = Limiter(key_func=get_remote_address)
@@ -54,6 +67,7 @@ app.include_router(incidents_router)
 app.include_router(assets_router)
 app.include_router(iocs_router)
 app.include_router(observability_router)
+app.include_router(ml_router)
 
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):

@@ -18,6 +18,7 @@ import {
   X,
   AlertCircle,
   Server,
+  Brain,
 } from "lucide-react";
 
 interface NavItem {
@@ -33,6 +34,7 @@ const menuItems: NavItem[] = [
   { label: "Phishing", href: "/phishing", icon: Link2 },
   { label: "Ransomware", href: "/ransomware", icon: Shield },
   { label: "UPI Verifier", href: "/upi", icon: CreditCard },
+  { label: "ML Predictor", href: "/ml-predictor", icon: Brain },
   { label: "Reports", href: "/reports", icon: FileText },
   { label: "Notifications", href: "/notifications", icon: Bell },
 ];

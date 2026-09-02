@@ -2,6 +2,7 @@ import os
 import uuid
 import shutil
 import tempfile
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.orm import Session
 from starlette.requests import Request
@@ -18,6 +19,13 @@ from app.services.email_analyser import analyse_header
 from app.services.ai_client import get_ai_analysis
 from app.services.alerts import generate_alerts
 from app.services.correlation import correlate_scan_event
+
+# ML imports
+from app.ml.predictor import predict_phishing, predict_upi_fraud, predict_network_anomaly
+from app.ml.feature_extractors import extract_phishing_features, extract_upi_features, extract_network_features
+
+logger = logging.getLogger(__name__)
+
 
 router = APIRouter()
 
@@ -80,8 +88,25 @@ async def scan_network_endpoint(
 ):
     result = scan_ports(body.target)
     generate_alerts(result)
+
+    # --- ML: network anomaly detection ---
+    try:
+        ml_features = extract_network_features(result)
+        ml_pred = predict_network_anomaly(ml_features)
+        result["ml_prediction"] = {
+            "label": ml_pred.label,
+            "confidence": ml_pred.confidence,
+            "confidence_pct": ml_pred.confidence_pct,
+            "explanation": ml_pred.explanation,
+            "feature_importances": ml_pred.feature_importances,
+            "model_name": ml_pred.model_name,
+            "raw_scores": ml_pred.raw_scores,
+        }
+    except Exception as exc:
+        logger.warning(f"ML network prediction failed (non-blocking): {exc}")
+
     correlate_scan_event("Network Scan", body.target, result, db)
-    
+
     scan_record = ScanHistory(
         scan_type="Network Scan",
         target=body.target,
@@ -102,8 +127,25 @@ async def scan_email_endpoint(
     ai_resp = get_ai_analysis(result)
     result["summary"] = ai_resp["summary"]
     result["actions"] = ai_resp["actions"]
+
+    # --- ML: phishing classification ---
+    try:
+        ml_features = extract_phishing_features(result)
+        ml_pred = predict_phishing(ml_features)
+        result["ml_prediction"] = {
+            "label": ml_pred.label,
+            "confidence": ml_pred.confidence,
+            "confidence_pct": ml_pred.confidence_pct,
+            "explanation": ml_pred.explanation,
+            "feature_importances": ml_pred.feature_importances,
+            "model_name": ml_pred.model_name,
+            "raw_scores": ml_pred.raw_scores,
+        }
+    except Exception as exc:
+        logger.warning(f"ML phishing prediction failed (non-blocking): {exc}")
+
     correlate_scan_event("Phishing (Email)", "Email Headers", result, db)
-    
+
     scan_record = ScanHistory(
         scan_type="Phishing (Email)",
         target="Email Headers Analysis",
@@ -157,9 +199,25 @@ async def scan_upi_endpoint(
                     "Do not proceed if the name shown in the payment app differs from the expected business/person."
                 ]
             }
-            
+
+    # --- ML: UPI fraud scoring ---
+    try:
+        ml_features = extract_upi_features(body.upi_id)
+        ml_pred = predict_upi_fraud(ml_features)
+        result["ml_prediction"] = {
+            "label": ml_pred.label,
+            "confidence": ml_pred.confidence,
+            "confidence_pct": ml_pred.confidence_pct,
+            "explanation": ml_pred.explanation,
+            "feature_importances": ml_pred.feature_importances,
+            "model_name": ml_pred.model_name,
+            "raw_scores": ml_pred.raw_scores,
+        }
+    except Exception as exc:
+        logger.warning(f"ML UPI prediction failed (non-blocking): {exc}")
+
     correlate_scan_event("UPI Check", body.upi_id, result, db)
-    
+
     scan_record = ScanHistory(
         scan_type="UPI Check",
         target=body.upi_id,
