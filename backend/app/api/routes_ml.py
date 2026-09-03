@@ -2,14 +2,15 @@
 ML API routes for Vanguard SME Security Suite.
 
 Endpoints:
-  POST /api/ml/predict         — Run ML prediction for a given scan type + features
-  GET  /api/ml/model-info      — Metadata about loaded models
+  POST /api/ml/predict         — Run standardized ML prediction for a given scan type + features
+  GET  /api/ml/model-info      — Real metadata & evaluation metrics about loaded models
   POST /api/ml/retrain         — Force retrain all models (Admin only)
 """
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Dict, Any, List, Optional
+import datetime
 
 from app.core.security import get_current_user
 from app.core.rbac import require_role
@@ -26,6 +27,8 @@ from app.ml.predictor import (
 )
 from app.ml.trainer import (
     retrain_all,
+    get_model_metadata,
+    ensure_models_ready,
     PHISHING_MODEL_PATH,
     UPI_MODEL_PATH,
     NETWORK_MODEL_PATH,
@@ -38,7 +41,15 @@ router = APIRouter(prefix="/api/ml", tags=["ML"])
 
 class MLPredictRequest(BaseModel):
     scan_type: str          # "phishing_email" | "upi" | "network"
-    features: Dict[str, Any]  # Raw feature dict (see feature_extractors.py)
+    features: Dict[str, Any]
+
+
+class MLFeatureItemResponse(BaseModel):
+    name: str
+    value: float
+    importance: Optional[float] = 0.0
+    contribution: Optional[str] = "neutral"
+    description: Optional[str] = None
 
 
 class FeatureImportanceItem(BaseModel):
@@ -47,13 +58,21 @@ class FeatureImportanceItem(BaseModel):
 
 
 class MLPredictResponse(BaseModel):
+    model: str
+    model_version: str
+    task: str
+    prediction: str
+    score: float
+    score_type: str
+    risk_level: str
+    explanation: str
+    features: List[MLFeatureItemResponse]
+    model_name: str
     label: str
     confidence: float
     confidence_pct: int
-    explanation: str
     feature_importances: List[FeatureImportanceItem]
-    model_name: str
-    raw_scores: Optional[Dict[str, float]] = None
+    raw_scores: Optional[Dict[str, Any]] = None
 
 
 class ModelInfoResponse(BaseModel):
@@ -68,31 +87,22 @@ async def ml_predict(
     current_user: str = Depends(get_current_user),
 ):
     """
-    Run an ML prediction.
-
-    scan_type values:
-      - "phishing_email"  → RandomForest phishing classifier
-      - "upi"             → GradientBoosting UPI fraud scorer
-      - "network"         → IsolationForest network anomaly detector
-
-    The `features` dict should match what the corresponding service returns
-    (or can be a manually crafted feature dict for the ML Predictor page).
+    Run an ML prediction returning standardized output.
     """
     scan_type = body.scan_type.lower().strip()
 
     try:
-        if scan_type == "phishing_email":
-            # features may be a raw scan result dict or a pre-extracted feature dict
+        if scan_type in ("phishing_email", "email", "phishing"):
             extracted = _coerce_phishing_features(body.features)
-            result = predict_phishing(extracted)
+            pred = predict_phishing(extracted)
 
-        elif scan_type == "upi":
+        elif scan_type in ("upi", "upi_fraud"):
             extracted = _coerce_upi_features(body.features)
-            result = predict_upi_fraud(extracted)
+            pred = predict_upi_fraud(extracted)
 
-        elif scan_type == "network":
+        elif scan_type in ("network", "network_anomaly", "nmap"):
             extracted = _coerce_network_features(body.features)
-            result = predict_network_anomaly(extracted)
+            pred = predict_network_anomaly(extracted)
 
         else:
             raise HTTPException(
@@ -105,23 +115,41 @@ async def ml_predict(
         raise HTTPException(status_code=500, detail=f"ML prediction failed: {str(exc)}")
 
     return MLPredictResponse(
-        label=result.label,
-        confidence=result.confidence,
-        confidence_pct=result.confidence_pct,
-        explanation=result.explanation,
+        model=pred.model,
+        model_version=pred.model_version,
+        task=pred.task,
+        prediction=pred.prediction,
+        score=pred.score,
+        score_type=pred.score_type,
+        risk_level=pred.risk_level,
+        explanation=pred.explanation,
+        features=[
+            MLFeatureItemResponse(
+                name=f["name"],
+                value=f["value"],
+                importance=f.get("importance", 0.0),
+                contribution=f.get("contribution", "neutral"),
+                description=f.get("description"),
+            )
+            for f in pred.features
+        ],
+        model_name=pred.model_name,
+        label=pred.label,
+        confidence=pred.confidence,
+        confidence_pct=pred.confidence_pct,
         feature_importances=[
             FeatureImportanceItem(feature=fi["feature"], importance=fi["importance"])
-            for fi in result.feature_importances
+            for fi in pred.feature_importances
         ],
-        model_name=result.model_name,
-        raw_scores=result.raw_scores,
+        raw_scores=pred.raw_scores,
     )
 
 
 @router.get("/model-info", response_model=ModelInfoResponse)
 async def model_info(current_user: str = Depends(get_current_user)):
-    """Return metadata about all loaded ML models."""
-    import os, datetime
+    """Return genuine metadata & evaluation metrics about all loaded ML models."""
+    ensure_models_ready()
+    saved_meta = get_model_metadata()
 
     def _file_info(path):
         if path.exists():
@@ -129,36 +157,82 @@ async def model_info(current_user: str = Depends(get_current_user)):
             return {
                 "exists": True,
                 "size_kb": round(stat.st_size / 1024, 1),
-                "trained_at": datetime.datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                "last_modified": datetime.datetime.fromtimestamp(stat.st_mtime).isoformat() + "Z",
             }
-        return {"exists": False, "size_kb": 0, "trained_at": None}
+        return {"exists": False, "size_kb": 0, "last_modified": None}
+
+    phishing_metrics = saved_meta.get("phishing", {})
+    upi_metrics = saved_meta.get("upi", {})
+    network_metrics = saved_meta.get("network", {})
 
     models = [
         {
             "name": "RandomForest Phishing Classifier",
             "scan_type": "phishing_email",
             "algorithm": "RandomForestClassifier",
+            "version": "1.0",
+            "score_type": "probability",
             "labels": ["CLEAN", "SUSPICIOUS", "PHISHING"],
             "features": ["spf_fail", "dkim_fail", "dmarc_fail", "domain_mismatch", "spoofed", "reply_to_mismatch"],
-            "training_samples": 1200,
+            "metrics": {
+                "accuracy": phishing_metrics.get("accuracy"),
+                "precision": phishing_metrics.get("precision"),
+                "recall": phishing_metrics.get("recall"),
+                "f1_score": phishing_metrics.get("f1_score"),
+                "confusion_matrix": phishing_metrics.get("confusion_matrix"),
+                "training_samples": phishing_metrics.get("training_samples", 960),
+                "test_samples": phishing_metrics.get("test_samples", 240),
+            },
+            "dataset": phishing_metrics.get("dataset_metadata", {
+                "dataset_type": "Synthetic Prototype Dataset",
+                "notes": "Generated from representative email authentication fail rates"
+            }),
             **_file_info(PHISHING_MODEL_PATH),
         },
         {
             "name": "GradientBoosting UPI Fraud Scorer",
             "scan_type": "upi",
             "algorithm": "GradientBoostingClassifier",
+            "version": "1.0",
+            "score_type": "probability",
             "labels": ["SAFE", "SUSPICIOUS", "FRAUDULENT"],
             "features": ["handle_length", "has_numbers", "digit_ratio", "suspicious_keyword_score", "brand_keyword_score", "handle_entropy"],
-            "training_samples": 1200,
+            "metrics": {
+                "accuracy": upi_metrics.get("accuracy"),
+                "precision": upi_metrics.get("precision"),
+                "recall": upi_metrics.get("recall"),
+                "f1_score": upi_metrics.get("f1_score"),
+                "confusion_matrix": upi_metrics.get("confusion_matrix"),
+                "training_samples": upi_metrics.get("training_samples", 960),
+                "test_samples": upi_metrics.get("test_samples", 240),
+            },
+            "dataset": upi_metrics.get("dataset_metadata", {
+                "dataset_type": "Synthetic Prototype Dataset",
+                "notes": "Simulated handle length, keyword flags, and entropy"
+            }),
             **_file_info(UPI_MODEL_PATH),
         },
         {
             "name": "IsolationForest Network Anomaly Detector",
             "scan_type": "network",
             "algorithm": "IsolationForest",
+            "version": "1.0",
+            "score_type": "anomaly_score",
             "labels": ["NORMAL", "ANOMALOUS"],
             "features": ["num_open_ports", "has_critical", "has_rdp", "has_smb", "has_db", "has_ftp", "has_telnet"],
-            "training_samples": 1000,
+            "metrics": {
+                "precision": network_metrics.get("precision"),
+                "recall": network_metrics.get("recall"),
+                "f1_score": network_metrics.get("f1_score"),
+                "false_positive_rate": network_metrics.get("false_positive_rate"),
+                "confusion_matrix": network_metrics.get("confusion_matrix"),
+                "training_samples": network_metrics.get("training_samples", 750),
+                "test_samples": network_metrics.get("test_samples", 250),
+            },
+            "dataset": network_metrics.get("dataset_metadata", {
+                "dataset_type": "Synthetic Prototype Dataset",
+                "notes": "Trained unsupervised on normal port baseline; evaluated on held-out test data"
+            }),
             **_file_info(NETWORK_MODEL_PATH),
         },
     ]
@@ -171,23 +245,22 @@ async def retrain_models(
     current_user: str = Depends(get_current_user),
     _: None = Depends(require_role(["Admin"])),
 ):
-    """Force retrain all ML models. Admin only."""
+    """Force retrain all ML models with fresh evaluation metrics. Admin only."""
     try:
-        retrain_all()
+        new_metrics = retrain_all()
         _ModelCache.invalidate()
-        return {"status": "success", "message": "All ML models retrained successfully."}
+        return {
+            "status": "success",
+            "message": "All ML models retrained and evaluated successfully.",
+            "metrics": new_metrics,
+        }
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Retraining failed: {str(exc)}")
 
 
-# ── Feature coercers — accept both raw scan result and pre-extracted feature dicts ──
+# ── Feature coercers ─────────────────────────────────────────────────────────
 
 def _coerce_phishing_features(data: Dict[str, Any]) -> Dict[str, float]:
-    """
-    Accepts either:
-      - A raw email_analyser result dict (has spf_status, dkim_status, etc.)
-      - A pre-extracted feature dict (has spf_fail, dkim_fail, etc.)
-    """
     if "spf_fail" in data:
         return {k: float(v) for k, v in data.items()}
     return extract_phishing_features(data)

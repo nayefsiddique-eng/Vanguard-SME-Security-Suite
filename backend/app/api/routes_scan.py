@@ -26,7 +26,6 @@ from app.ml.feature_extractors import extract_phishing_features, extract_upi_fea
 
 logger = logging.getLogger(__name__)
 
-
 router = APIRouter()
 
 @router.post("/api/scan/file", response_model=ScanResult)
@@ -35,7 +34,7 @@ async def scan_file_endpoint(
     current_user: str = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    suffix = os.path.splitext(file.filename)[1]
+    suffix = os.path.splitext(file.filename or "")[1]
     temp_filename = f"{uuid.uuid4()}{suffix}"
     temp_path = os.path.join(tempfile.gettempdir(), temp_filename)
     
@@ -59,7 +58,10 @@ async def scan_file_endpoint(
         return result
     finally:
         if os.path.exists(temp_path):
-            os.remove(temp_path)
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
 
 @router.post("/api/scan/url", response_model=ScanResult)
 async def scan_url_endpoint(
@@ -87,21 +89,14 @@ async def scan_network_endpoint(
     db: Session = Depends(get_db)
 ):
     result = scan_ports(body.target)
+    result["target"] = body.target
     generate_alerts(result)
 
     # --- ML: network anomaly detection ---
     try:
         ml_features = extract_network_features(result)
         ml_pred = predict_network_anomaly(ml_features)
-        result["ml_prediction"] = {
-            "label": ml_pred.label,
-            "confidence": ml_pred.confidence,
-            "confidence_pct": ml_pred.confidence_pct,
-            "explanation": ml_pred.explanation,
-            "feature_importances": ml_pred.feature_importances,
-            "model_name": ml_pred.model_name,
-            "raw_scores": ml_pred.raw_scores,
-        }
+        result["ml_prediction"] = ml_pred.to_dict()
     except Exception as exc:
         logger.warning(f"ML network prediction failed (non-blocking): {exc}")
 
@@ -125,22 +120,15 @@ async def scan_email_endpoint(
 ):
     result = analyse_header(body.header)
     ai_resp = get_ai_analysis(result)
-    result["summary"] = ai_resp["summary"]
-    result["actions"] = ai_resp["actions"]
+    result["summary"] = ai_resp.get("summary", result.get("summary", ""))
+    result["actions"] = ai_resp.get("actions", result.get("actions", []))
+    result["target"] = "Email Headers Analysis"
 
     # --- ML: phishing classification ---
     try:
         ml_features = extract_phishing_features(result)
         ml_pred = predict_phishing(ml_features)
-        result["ml_prediction"] = {
-            "label": ml_pred.label,
-            "confidence": ml_pred.confidence,
-            "confidence_pct": ml_pred.confidence_pct,
-            "explanation": ml_pred.explanation,
-            "feature_importances": ml_pred.feature_importances,
-            "model_name": ml_pred.model_name,
-            "raw_scores": ml_pred.raw_scores,
-        }
+        result["ml_prediction"] = ml_pred.to_dict()
     except Exception as exc:
         logger.warning(f"ML phishing prediction failed (non-blocking): {exc}")
 
@@ -163,56 +151,40 @@ async def scan_upi_endpoint(
     db: Session = Depends(get_db)
 ):
     upi = body.upi_id.lower().strip()
-    upi_pattern = r"^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$"
-    import re
-    if not re.match(upi_pattern, upi):
+    is_suspicious_keyword = any(kw in upi for kw in ["suspicious", "fake", "fraud", "scam", "phish", "steal", "hack", "kyc", "refund", "lottery"])
+    
+    if is_suspicious_keyword:
         result = {
             "tool": "upi_verifier",
-            "verdict": "ERROR",
-            "severity": "None",
-            "summary": "Invalid UPI ID syntax. Verify handle format (e.g. user@handle).",
-            "actions": ["Re-check the spelling of the UPI ID.", "Ensure it contains exactly one '@' character."]
+            "verdict": "DANGEROUS",
+            "severity": "Critical",
+            "target": body.upi_id,
+            "summary": "This UPI ID contains keywords strongly associated with social engineering and fraud reports.",
+            "actions": [
+                "Do NOT send any payments to this address.",
+                "Report this UPI ID to your bank or payment app.",
+                "Block the sender contact immediately."
+            ]
         }
     else:
-        is_suspicious_keyword = any(kw in upi for kw in ["suspicious", "fake", "fraud", "scam", "phish", "steal", "hack"])
-        if is_suspicious_keyword:
-            result = {
-                "tool": "upi_verifier",
-                "verdict": "DANGEROUS",
-                "severity": "Critical",
-                "summary": "This UPI ID contains words strongly associated with security flags or fraud reports.",
-                "actions": [
-                    "Do NOT send any payments to this address.",
-                    "Report this UPI ID to your bank or payment app.",
-                    "Block the sender contact immediately."
-                ]
-            }
-        else:
-            result = {
-                "tool": "upi_verifier",
-                "verdict": "SUSPICIOUS",
-                "severity": "Low",
-                "summary": "UPI ID format is syntactically valid, but owner identity is unverified. Best-case low risk check.",
-                "actions": [
-                    "Verify the recipient name shown by your UPI/PSP app matches before paying.",
-                    "Start with a small test transaction (e.g. ₹1) to confirm recipient identity.",
-                    "Do not proceed if the name shown in the payment app differs from the expected business/person."
-                ]
-            }
+        result = {
+            "tool": "upi_verifier",
+            "verdict": "SUSPICIOUS",
+            "severity": "Low",
+            "target": body.upi_id,
+            "summary": "UPI ID format is syntactically valid, but owner identity is unverified. Best-case low risk check.",
+            "actions": [
+                "Verify the recipient name shown by your UPI/PSP app matches before paying.",
+                "Start with a small test transaction (e.g. ₹1) to confirm recipient identity.",
+                "Do not proceed if the name shown in the payment app differs from the expected business/person."
+            ]
+        }
 
     # --- ML: UPI fraud scoring ---
     try:
         ml_features = extract_upi_features(body.upi_id)
         ml_pred = predict_upi_fraud(ml_features)
-        result["ml_prediction"] = {
-            "label": ml_pred.label,
-            "confidence": ml_pred.confidence,
-            "confidence_pct": ml_pred.confidence_pct,
-            "explanation": ml_pred.explanation,
-            "feature_importances": ml_pred.feature_importances,
-            "model_name": ml_pred.model_name,
-            "raw_scores": ml_pred.raw_scores,
-        }
+        result["ml_prediction"] = ml_pred.to_dict()
     except Exception as exc:
         logger.warning(f"ML UPI prediction failed (non-blocking): {exc}")
 

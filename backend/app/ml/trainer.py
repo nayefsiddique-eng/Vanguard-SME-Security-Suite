@@ -1,20 +1,31 @@
 """
 ML model trainer for Vanguard SME Security Suite.
 
-Generates synthetic but realistic labeled training data and trains three models:
-  1. Phishing Email Classifier   — RandomForestClassifier
-  2. UPI Fraud Scorer            — GradientBoostingClassifier
-  3. Network Anomaly Detector    — IsolationForest (anomaly detection)
-
-Models are serialized to backend/app/ml/models/ with joblib.
-Call ensure_models_ready() at application startup.
+Features:
+  1. Clear separation of data generation from training
+  2. Dataset metadata tracking (type, samples, feature names, distribution, timestamp)
+  3. Proper train/test split (80/20) with fixed random seeds for reproducible demonstration
+  4. Genuine evaluation metrics:
+     - Supervised (RandomForest & GradientBoosting): Accuracy, Precision, Recall, F1 (macro & weighted), Confusion Matrix
+     - Unsupervised (IsolationForest): Evaluated against held-out labeled dataset (Precision, Recall, F1, FPR)
+  5. Saved artifacts and metadata persistence in models/model_metadata.json
 """
 
-import os
+import json
 import logging
+import datetime
+from pathlib import Path
+from typing import Dict, Any, Tuple
 import numpy as np
 import joblib
-from pathlib import Path
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
+
+from app.ml.feature_extractors import (
+    PHISHING_FEATURE_NAMES,
+    UPI_FEATURE_NAMES,
+    NETWORK_FEATURE_NAMES,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -24,188 +35,234 @@ MODELS_DIR = _ML_DIR / "models"
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
 PHISHING_MODEL_PATH = MODELS_DIR / "phishing_classifier.joblib"
-UPI_MODEL_PATH      = MODELS_DIR / "upi_fraud_scorer.joblib"
-NETWORK_MODEL_PATH  = MODELS_DIR / "network_anomaly_detector.joblib"
+UPI_MODEL_PATH = MODELS_DIR / "upi_fraud_scorer.joblib"
+NETWORK_MODEL_PATH = MODELS_DIR / "network_anomaly_detector.joblib"
+METADATA_PATH = MODELS_DIR / "model_metadata.json"
 
 # ── Label maps ───────────────────────────────────────────────────────────────
 PHISHING_LABELS = ["CLEAN", "SUSPICIOUS", "PHISHING"]
-UPI_LABELS      = ["SAFE", "SUSPICIOUS", "FRAUDULENT"]
+UPI_LABELS = ["SAFE", "SUSPICIOUS", "FRAUDULENT"]
+NETWORK_LABELS = ["NORMAL", "ANOMALOUS"]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Synthetic data generators
+# Synthetic Data Generation Layer (clearly marked as synthetic prototype data)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _gen_phishing_data(n: int = 1200, seed: int = 42):
+def generate_synthetic_phishing_dataset(n: int = 1200, seed: int = 42) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
     """
-    6 binary features: spf_fail, dkim_fail, dmarc_fail,
-                       domain_mismatch, spoofed, reply_to_mismatch
+    Generates synthetic email header feature vectors and multiclass labels.
     Labels: 0=CLEAN, 1=SUSPICIOUS, 2=PHISHING
     """
     rng = np.random.default_rng(seed)
     X, y = [], []
 
-    # CLEAN emails (40%)
     n_clean = int(n * 0.40)
     for _ in range(n_clean):
         row = [
-            rng.integers(0, 2) * 0,          # spf_fail — mostly 0
-            rng.integers(0, 2) * 0,
-            rng.integers(0, 2) * 0,
-            0,                                # domain_mismatch
-            0,                                # spoofed
-            rng.integers(0, 2) * 0,
+            0.0 if rng.random() > 0.05 else 1.0,  # spf_fail
+            0.0 if rng.random() > 0.03 else 1.0,  # dkim_fail
+            0.0 if rng.random() > 0.03 else 1.0,  # dmarc_fail
+            0.0,                                  # domain_mismatch
+            0.0,                                  # spoofed
+            0.0 if rng.random() > 0.04 else 1.0,  # reply_to_mismatch
         ]
-        # allow occasional noise
-        if rng.random() < 0.05:
-            row[0] = 1
         X.append(row)
         y.append(0)
 
-    # SUSPICIOUS emails (30%)
     n_susp = int(n * 0.30)
     for _ in range(n_susp):
         row = [
-            int(rng.random() < 0.50),        # spf sometimes fails
-            int(rng.random() < 0.30),
-            int(rng.random() < 0.30),
-            int(rng.random() < 0.40),        # domain_mismatch sometimes
-            0,
-            int(rng.random() < 0.40),
+            1.0 if rng.random() < 0.50 else 0.0,
+            1.0 if rng.random() < 0.35 else 0.0,
+            1.0 if rng.random() < 0.35 else 0.0,
+            1.0 if rng.random() < 0.45 else 0.0,
+            0.0,
+            1.0 if rng.random() < 0.40 else 0.0,
         ]
         X.append(row)
         y.append(1)
 
-    # PHISHING emails (30%)
     n_phish = n - n_clean - n_susp
     for _ in range(n_phish):
         row = [
-            int(rng.random() < 0.85),        # spf usually fails
-            int(rng.random() < 0.80),
-            int(rng.random() < 0.80),
-            int(rng.random() < 0.90),        # domain_mismatch almost always
-            int(rng.random() < 0.75),        # spoofed
-            int(rng.random() < 0.70),
+            1.0 if rng.random() < 0.88 else 0.0,
+            1.0 if rng.random() < 0.82 else 0.0,
+            1.0 if rng.random() < 0.85 else 0.0,
+            1.0 if rng.random() < 0.92 else 0.0,
+            1.0 if rng.random() < 0.78 else 0.0,
+            1.0 if rng.random() < 0.75 else 0.0,
         ]
         X.append(row)
         y.append(2)
 
-    return np.array(X, dtype=float), np.array(y)
+    X_arr = np.array(X, dtype=float)
+    y_arr = np.array(y, dtype=int)
+
+    metadata = {
+        "dataset_type": "Synthetic Prototype Dataset",
+        "task": "phishing_detection",
+        "total_samples": len(y_arr),
+        "feature_names": PHISHING_FEATURE_NAMES,
+        "class_distribution": {
+            "CLEAN": int(np.sum(y_arr == 0)),
+            "SUSPICIOUS": int(np.sum(y_arr == 1)),
+            "PHISHING": int(np.sum(y_arr == 2)),
+        },
+        "random_seed": seed,
+        "generation_method": "Synthetic probabilistic generator calibrated from typical email auth failure rates",
+    }
+    return X_arr, y_arr, metadata
 
 
-def _gen_upi_data(n: int = 1200, seed: int = 43):
+def generate_synthetic_upi_dataset(n: int = 1200, seed: int = 43) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
     """
-    6 numeric features: handle_length, has_numbers, digit_ratio,
-                        suspicious_keyword_score, brand_keyword_score, handle_entropy
+    Generates synthetic UPI feature vectors and multiclass labels.
     Labels: 0=SAFE, 1=SUSPICIOUS, 2=FRAUDULENT
     """
     rng = np.random.default_rng(seed)
     X, y = [], []
 
-    # SAFE (40%)
-    n_safe = int(n * 0.40)
+    n_safe = int(n * 0.45)
     for _ in range(n_safe):
-        length = rng.integers(5, 18)
-        has_num = int(rng.random() < 0.40)
-        X.append([
-            float(length),
-            float(has_num),
-            rng.uniform(0, 0.3) if has_num else 0.0,
-            0.0,                              # no suspicious keywords
-            float(rng.integers(0, 2)),        # maybe one brand keyword
-            rng.uniform(2.5, 3.5),
-        ])
+        length = float(rng.integers(5, 15))
+        digits = float(rng.integers(0, 4))
+        row = [
+            length,
+            1.0 if digits > 0 else 0.0,
+            round(digits / max(length, 1.0), 3),
+            0.0,                                   # suspicious keywords
+            0.0 if rng.random() > 0.15 else 1.0,   # legitimate merchant keyword
+            round(float(rng.uniform(1.8, 3.2)), 3) # entropy
+        ]
+        X.append(row)
         y.append(0)
 
-    # SUSPICIOUS (35%)
-    n_susp = int(n * 0.35)
+    n_susp = int(n * 0.30)
     for _ in range(n_susp):
-        length = rng.integers(8, 30)
-        has_num = int(rng.random() < 0.60)
-        X.append([
-            float(length),
-            float(has_num),
-            rng.uniform(0.2, 0.5) if has_num else 0.0,
+        length = float(rng.integers(12, 28))
+        digits = float(rng.integers(4, 12))
+        row = [
+            length,
+            1.0,
+            round(digits / max(length, 1.0), 3),
             float(rng.integers(0, 2)),
-            float(rng.integers(1, 3)),
-            rng.uniform(2.8, 3.8),
-        ])
+            float(rng.integers(0, 2)),
+            round(float(rng.uniform(2.8, 4.0)), 3)
+        ]
+        X.append(row)
         y.append(1)
 
-    # FRAUDULENT (25%)
     n_fraud = n - n_safe - n_susp
     for _ in range(n_fraud):
-        length = rng.integers(15, 45)
-        X.append([
-            float(length),
+        length = float(rng.integers(14, 35))
+        digits = float(rng.integers(6, 18))
+        row = [
+            length,
             1.0,
-            rng.uniform(0.4, 0.8),
-            float(rng.integers(1, 4)),        # suspicious keywords
-            float(rng.integers(2, 4)),        # brand keywords (impersonation)
-            rng.uniform(3.2, 4.2),
-        ])
+            round(digits / max(length, 1.0), 3),
+            float(rng.integers(1, 4)),             # multiple fraud keywords
+            float(rng.integers(1, 3)),             # impersonating brand keywords
+            round(float(rng.uniform(3.5, 4.6)), 3)
+        ]
+        X.append(row)
         y.append(2)
 
-    return np.array(X, dtype=float), np.array(y)
+    X_arr = np.array(X, dtype=float)
+    y_arr = np.array(y, dtype=int)
+
+    metadata = {
+        "dataset_type": "Synthetic Prototype Dataset",
+        "task": "upi_fraud_detection",
+        "total_samples": len(y_arr),
+        "feature_names": UPI_FEATURE_NAMES,
+        "class_distribution": {
+            "SAFE": int(np.sum(y_arr == 0)),
+            "SUSPICIOUS": int(np.sum(y_arr == 1)),
+            "FRAUDULENT": int(np.sum(y_arr == 2)),
+        },
+        "random_seed": seed,
+        "generation_method": "Synthetic probabilistic generator modeling brand impersonation and handle entropy",
+    }
+    return X_arr, y_arr, metadata
 
 
-def _gen_network_data(n: int = 1000, seed: int = 44):
+def generate_synthetic_network_dataset(n: int = 1000, seed: int = 44) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
     """
-    7 features: num_open_ports, has_critical, has_rdp, has_smb,
-                has_db, has_ftp, has_telnet
-    For IsolationForest: normal (80%) vs anomalous (20%).
-    Returns only X (unsupervised).  y is used for evaluation only.
+    Generates network exposure feature vectors.
+    Labels: 0=NORMAL (80%), 1=ANOMALOUS (20%).
+    IsolationForest is trained on normal/typical baseline samples, and evaluated against held-out labeled set.
     """
     rng = np.random.default_rng(seed)
     X, y = [], []
 
-    # Normal hosts (80%)
     n_normal = int(n * 0.80)
     for _ in range(n_normal):
-        ports = rng.integers(1, 5)
+        ports = float(rng.integers(1, 4))
         row = [
-            float(ports),
+            ports,
             0.0,
             0.0,
             0.0,
             0.0,
-            int(rng.random() < 0.10),
-            0.0,
+            1.0 if rng.random() < 0.08 else 0.0, # occasional ftp
+            0.0,                                 # no telnet
         ]
         X.append(row)
         y.append(0)
 
-    # Anomalous (20%) — many open critical ports
     n_anom = n - n_normal
     for _ in range(n_anom):
-        ports = rng.integers(5, 15)
+        ports = float(rng.integers(5, 14))
         row = [
-            float(ports),
-            1.0,
-            int(rng.random() < 0.75),
-            int(rng.random() < 0.65),
-            int(rng.random() < 0.55),
-            int(rng.random() < 0.60),
-            int(rng.random() < 0.50),
+            ports,
+            1.0,                                  # critical port present
+            1.0 if rng.random() < 0.80 else 0.0,  # rdp
+            1.0 if rng.random() < 0.70 else 0.0,  # smb
+            1.0 if rng.random() < 0.60 else 0.0,  # db
+            1.0 if rng.random() < 0.55 else 0.0,  # ftp
+            1.0 if rng.random() < 0.50 else 0.0,  # telnet
         ]
         X.append(row)
         y.append(1)
 
-    idx = rng.permutation(len(X))
-    return np.array(X, dtype=float)[idx], np.array(y)[idx]
+    X_arr = np.array(X, dtype=float)
+    y_arr = np.array(y, dtype=int)
+
+    # Shuffle
+    idx = rng.permutation(len(X_arr))
+    X_arr = X_arr[idx]
+    y_arr = y_arr[idx]
+
+    metadata = {
+        "dataset_type": "Synthetic Prototype Dataset",
+        "task": "network_anomaly_detection",
+        "total_samples": len(y_arr),
+        "feature_names": NETWORK_FEATURE_NAMES,
+        "class_distribution": {
+            "NORMAL": int(np.sum(y_arr == 0)),
+            "ANOMALOUS": int(np.sum(y_arr == 1)),
+        },
+        "random_seed": seed,
+        "generation_method": "Synthetic port distribution baseline with high-risk exposure injections",
+    }
+    return X_arr, y_arr, metadata
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Training functions
+# Training and Evaluation Pipeline
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _train_phishing_model():
+def train_and_evaluate_phishing() -> Dict[str, Any]:
+    """Train RandomForest with 80/20 train/test split and calculate metrics."""
     from sklearn.ensemble import RandomForestClassifier
     from sklearn.pipeline import Pipeline
     from sklearn.preprocessing import StandardScaler
 
-    logger.info("ML: Training phishing email classifier (RandomForest)…")
-    X, y = _gen_phishing_data()
+    X, y, data_meta = generate_synthetic_phishing_dataset()
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.20, random_state=42, stratify=y
+    )
 
     model = Pipeline([
         ("scaler", StandardScaler()),
@@ -216,19 +273,48 @@ def _train_phishing_model():
             random_state=42,
         )),
     ])
-    model.fit(X, y)
+    model.fit(X_train, y_train)
+    y_pred = model.predict(X_test)
+
+    acc = float(accuracy_score(y_test, y_pred))
+    prec = float(precision_score(y_test, y_pred, average="weighted", zero_division=0))
+    rec = float(recall_score(y_test, y_pred, average="weighted", zero_division=0))
+    f1 = float(f1_score(y_test, y_pred, average="weighted", zero_division=0))
+    cm = confusion_matrix(y_test, y_pred).tolist()
+
     joblib.dump(model, PHISHING_MODEL_PATH)
-    logger.info(f"ML: Phishing model saved → {PHISHING_MODEL_PATH}")
-    return model
+
+    metrics = {
+        "model_name": "RandomForest Phishing Classifier",
+        "algorithm": "RandomForestClassifier",
+        "version": "1.0",
+        "score_type": "probability",
+        "task": "phishing_detection",
+        "training_samples": len(X_train),
+        "test_samples": len(X_test),
+        "accuracy": round(acc, 4),
+        "precision": round(prec, 4),
+        "recall": round(rec, 4),
+        "f1_score": round(f1, 4),
+        "confusion_matrix": cm,
+        "labels": PHISHING_LABELS,
+        "dataset_metadata": data_meta,
+        "training_timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+    }
+    logger.info(f"ML: Trained Phishing Classifier -> Accuracy: {acc:.3f}, F1: {f1:.3f}")
+    return metrics
 
 
-def _train_upi_model():
+def train_and_evaluate_upi() -> Dict[str, Any]:
+    """Train GradientBoosting with 80/20 train/test split and calculate metrics."""
     from sklearn.ensemble import GradientBoostingClassifier
     from sklearn.pipeline import Pipeline
     from sklearn.preprocessing import StandardScaler
 
-    logger.info("ML: Training UPI fraud scorer (GradientBoosting)…")
-    X, y = _gen_upi_data()
+    X, y, data_meta = generate_synthetic_upi_dataset()
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.20, random_state=43, stratify=y
+    )
 
     model = Pipeline([
         ("scaler", StandardScaler()),
@@ -239,20 +325,52 @@ def _train_upi_model():
             random_state=43,
         )),
     ])
-    model.fit(X, y)
+    model.fit(X_train, y_train)
+    y_pred = model.predict(X_test)
+
+    acc = float(accuracy_score(y_test, y_pred))
+    prec = float(precision_score(y_test, y_pred, average="weighted", zero_division=0))
+    rec = float(recall_score(y_test, y_pred, average="weighted", zero_division=0))
+    f1 = float(f1_score(y_test, y_pred, average="weighted", zero_division=0))
+    cm = confusion_matrix(y_test, y_pred).tolist()
+
     joblib.dump(model, UPI_MODEL_PATH)
-    logger.info(f"ML: UPI fraud model saved → {UPI_MODEL_PATH}")
-    return model
+
+    metrics = {
+        "model_name": "GradientBoosting UPI Fraud Scorer",
+        "algorithm": "GradientBoostingClassifier",
+        "version": "1.0",
+        "score_type": "probability",
+        "task": "upi_fraud_detection",
+        "training_samples": len(X_train),
+        "test_samples": len(X_test),
+        "accuracy": round(acc, 4),
+        "precision": round(prec, 4),
+        "recall": round(rec, 4),
+        "f1_score": round(f1, 4),
+        "confusion_matrix": cm,
+        "labels": UPI_LABELS,
+        "dataset_metadata": data_meta,
+        "training_timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+    }
+    logger.info(f"ML: Trained UPI Fraud Scorer -> Accuracy: {acc:.3f}, F1: {f1:.3f}")
+    return metrics
 
 
-def _train_network_model():
+def train_and_evaluate_network() -> Dict[str, Any]:
+    """
+    Train IsolationForest unsupervised on typical normal baselines,
+    and evaluate against a held-out labeled evaluation set.
+    """
     from sklearn.ensemble import IsolationForest
     from sklearn.pipeline import Pipeline
     from sklearn.preprocessing import StandardScaler
 
-    logger.info("ML: Training network anomaly detector (IsolationForest)…")
-    X, y = _gen_network_data()
-    # IsolationForest is unsupervised — train on full data
+    X, y, data_meta = generate_synthetic_network_dataset()
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.25, random_state=44, stratify=y
+    )
+
     model = Pipeline([
         ("scaler", StandardScaler()),
         ("clf", IsolationForest(
@@ -261,42 +379,113 @@ def _train_network_model():
             random_state=44,
         )),
     ])
-    model.fit(X)
+    # Unsupervised fit on training data
+    model.fit(X_train)
+
+    # Evaluate on held-out test data
+    # predict returns 1 for inlier (normal = 0), -1 for outlier (anomalous = 1)
+    raw_preds = model.predict(X_test)
+    y_pred_binary = np.where(raw_preds == -1, 1, 0)
+
+    prec = float(precision_score(y_test, y_pred_binary, pos_label=1, zero_division=0))
+    rec = float(recall_score(y_test, y_pred_binary, pos_label=1, zero_division=0))
+    f1 = float(f1_score(y_test, y_pred_binary, pos_label=1, zero_division=0))
+    cm = confusion_matrix(y_test, y_pred_binary).tolist()
+
+    # False Positive Rate (FP / (FP + TN))
+    tn = cm[0][0] if len(cm) > 0 else 0
+    fp = cm[0][1] if len(cm) > 0 and len(cm[0]) > 1 else 0
+    fpr = float(fp / max(fp + tn, 1))
+
     joblib.dump(model, NETWORK_MODEL_PATH)
-    logger.info(f"ML: Network anomaly model saved → {NETWORK_MODEL_PATH}")
-    return model
+
+    metrics = {
+        "model_name": "IsolationForest Network Anomaly Detector",
+        "algorithm": "IsolationForest",
+        "version": "1.0",
+        "score_type": "anomaly_score",
+        "task": "network_anomaly_detection",
+        "training_samples": len(X_train),
+        "test_samples": len(X_test),
+        "precision": round(prec, 4),
+        "recall": round(rec, 4),
+        "f1_score": round(f1, 4),
+        "false_positive_rate": round(fpr, 4),
+        "confusion_matrix": cm,
+        "labels": NETWORK_LABELS,
+        "dataset_metadata": data_meta,
+        "training_timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+    }
+    logger.info(f"ML: Trained Network Anomaly Detector -> Precision: {prec:.3f}, Recall: {rec:.3f}, FPR: {fpr:.3f}")
+    return metrics
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Public API
+# Metadata Persistence & Lifecycle
 # ─────────────────────────────────────────────────────────────────────────────
+
+def save_all_metadata(meta_dict: Dict[str, Any]):
+    try:
+        with open(METADATA_PATH, "w", encoding="utf-8") as f:
+            json.dump(meta_dict, f, indent=2)
+    except Exception as exc:
+        logger.error(f"Failed to persist ML metadata: {exc}")
+
+
+def get_model_metadata() -> Dict[str, Any]:
+    if METADATA_PATH.exists():
+        try:
+            with open(METADATA_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
 
 def ensure_models_ready():
     """
-    Called once at application startup.
-    Trains and saves models only if they don't exist on disk yet.
+    Runs at FastAPI lifespan startup.
+    Loads or trains models if files are absent or unreadable.
     """
-    if not PHISHING_MODEL_PATH.exists():
-        _train_phishing_model()
+    metadata = get_model_metadata()
+    updated = False
+
+    if not PHISHING_MODEL_PATH.exists() or "phishing" not in metadata:
+        meta_p = train_and_evaluate_phishing()
+        metadata["phishing"] = meta_p
+        updated = True
     else:
-        logger.info("ML: Phishing model already exists, skipping training.")
+        logger.info("ML: Phishing model already exists, skipping retraining.")
 
-    if not UPI_MODEL_PATH.exists():
-        _train_upi_model()
+    if not UPI_MODEL_PATH.exists() or "upi" not in metadata:
+        meta_u = train_and_evaluate_upi()
+        metadata["upi"] = meta_u
+        updated = True
     else:
-        logger.info("ML: UPI fraud model already exists, skipping training.")
+        logger.info("ML: UPI model already exists, skipping retraining.")
 
-    if not NETWORK_MODEL_PATH.exists():
-        _train_network_model()
+    if not NETWORK_MODEL_PATH.exists() or "network" not in metadata:
+        meta_n = train_and_evaluate_network()
+        metadata["network"] = meta_n
+        updated = True
     else:
-        logger.info("ML: Network anomaly model already exists, skipping training.")
+        logger.info("ML: Network model already exists, skipping retraining.")
 
-    logger.info("ML: All models ready.")
+    if updated:
+        save_all_metadata(metadata)
+
+    logger.info("ML: All models and evaluation metadata ready.")
 
 
-def retrain_all():
-    """Force-retrain all models (useful for admin endpoints)."""
-    _train_phishing_model()
-    _train_upi_model()
-    _train_network_model()
-    logger.info("ML: All models retrained.")
+def retrain_all() -> Dict[str, Any]:
+    """Force retrain all models and persist new evaluation results."""
+    meta_p = train_and_evaluate_phishing()
+    meta_u = train_and_evaluate_upi()
+    meta_n = train_and_evaluate_network()
+    combined = {
+        "phishing": meta_p,
+        "upi": meta_u,
+        "network": meta_n,
+    }
+    save_all_metadata(combined)
+    return combined

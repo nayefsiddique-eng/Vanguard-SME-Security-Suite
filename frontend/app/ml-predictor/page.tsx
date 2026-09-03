@@ -3,10 +3,18 @@
 import * as React from "react";
 import { AppLayout, TopBar, Card, Button, Input } from "@/components/cyber";
 import { API_URL } from "@/lib/config";
-import { Brain, RefreshCw, ChevronDown, ChevronUp, Info } from "lucide-react";
+import { Brain, RefreshCw, ChevronDown, ChevronUp, Info, ShieldCheck, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // ── Types ─────────────────────────────────────────────────────────────────
+
+interface FeatureItem {
+  name: string;
+  value: number;
+  importance?: number;
+  contribution?: string;
+  description?: string;
+}
 
 interface FeatureImportance {
   feature: string;
@@ -14,13 +22,21 @@ interface FeatureImportance {
 }
 
 interface MLResult {
+  model?: string;
+  model_version?: string;
+  task?: string;
+  prediction?: string;
+  score?: number;
+  score_type?: string;
+  risk_level?: string;
   label: string;
   confidence: number;
   confidence_pct: number;
   explanation: string;
+  features?: FeatureItem[];
   feature_importances: FeatureImportance[];
   model_name: string;
-  raw_scores?: Record<string, number>;
+  raw_scores?: Record<string, any>;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -34,21 +50,22 @@ function getLabelColor(label: string) {
 }
 
 function getBarColor(pct: number) {
-  if (pct >= 75) return "bg-risk-critical";
-  if (pct >= 50) return "bg-risk-moderate";
+  if (pct >= 70) return "bg-risk-critical";
+  if (pct >= 40) return "bg-risk-moderate";
   return "bg-risk-safe";
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────
 
-function ConfidenceBar({ pct, label }: { pct: number; label: string }) {
+function ScoreBar({ pct, scoreType }: { pct: number; scoreType?: string }) {
+  const label = scoreType === "anomaly_score" ? "Anomaly Score" : "Probability / Confidence";
   return (
     <div className="space-y-1.5">
       <div className="flex justify-between text-[11px]">
-        <span className="text-text-muted font-semibold uppercase tracking-wider">Confidence</span>
+        <span className="text-text-muted font-semibold uppercase tracking-wider">{label}</span>
         <span className="font-bold text-text-primary">{pct}%</span>
       </div>
-      <div className="h-3 w-full rounded-full bg-border overflow-hidden">
+      <div className="h-2.5 w-full rounded-full bg-border overflow-hidden">
         <div
           className={cn("h-full rounded-full transition-all duration-700", getBarColor(pct))}
           style={{ width: `${pct}%` }}
@@ -62,7 +79,9 @@ function FeatureChart({ features }: { features: FeatureImportance[] }) {
   const maxImp = features[0]?.importance || 1;
   return (
     <div className="space-y-2">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-text-muted">Feature Importances</p>
+      <p className="text-[10px] font-bold uppercase tracking-wider text-text-muted">
+        Model Feature Importances (Tree Splits)
+      </p>
       {features.slice(0, 6).map((fi) => {
         const pct = Math.round((fi.importance / maxImp) * 100);
         return (
@@ -83,6 +102,8 @@ function FeatureChart({ features }: { features: FeatureImportance[] }) {
 
 function MLResultPanel({ result }: { result: MLResult }) {
   const [expanded, setExpanded] = React.useState(true);
+  const isAnomaly = result.score_type === "anomaly_score" || result.model_name.includes("Isolation");
+
   return (
     <div className="rounded-xl border border-primary/30 bg-primary-dim/10 p-5 space-y-5">
       {/* Header */}
@@ -94,10 +115,10 @@ function MLResultPanel({ result }: { result: MLResult }) {
             <span
               className={cn(
                 "mt-0.5 inline-flex rounded-full px-3 py-0.5 text-[11px] font-bold uppercase tracking-wider",
-                getLabelColor(result.label)
+                getLabelColor(result.prediction || result.label)
               )}
             >
-              {result.label}
+              {result.prediction || result.label}
             </span>
           </div>
         </div>
@@ -111,24 +132,50 @@ function MLResultPanel({ result }: { result: MLResult }) {
 
       {expanded && (
         <>
-          <ConfidenceBar pct={result.confidence_pct} label={result.label} />
+          <ScoreBar pct={result.confidence_pct} scoreType={result.score_type} />
 
           {/* Explanation */}
           <div className="rounded-lg border-l-2 border-primary bg-primary-dim/30 px-4 py-3">
-            <p className="text-[13px] italic text-text-primary leading-relaxed">{result.explanation}</p>
+            <p className="text-[13px] text-text-primary leading-relaxed">{result.explanation}</p>
           </div>
 
-          {/* Feature importances */}
-          {result.feature_importances.length > 0 && <FeatureChart features={result.feature_importances} />}
+          {/* Signals vs Importances */}
+          {isAnomaly ? (
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-text-muted mb-2">
+                Contributing Signals & Risk Indicators
+              </p>
+              <div className="space-y-1.5 divide-y divide-border/20">
+                {(result.features || []).map((f) => (
+                  <div key={f.name} className="pt-1.5 flex items-center justify-between text-xs">
+                    <div>
+                      <span className="font-mono text-text-primary">{f.name}</span>
+                      {f.description && <p className="text-[10px] text-text-muted">{f.description}</p>}
+                    </div>
+                    <span className={cn(
+                      "font-bold text-[10px] px-2 py-0.5 rounded",
+                      f.value > 0 ? "bg-risk-critical/10 text-risk-critical" : "bg-border text-text-muted"
+                    )}>
+                      {f.value > 0 ? "ACTIVE" : "INACTIVE"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            result.feature_importances && result.feature_importances.length > 0 && (
+              <FeatureChart features={result.feature_importances} />
+            )
+          )}
 
           {/* Raw scores */}
           {result.raw_scores && Object.keys(result.raw_scores).length > 0 && (
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-text-muted mb-2">Raw Scores</p>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-text-muted mb-2">Raw Model Scores</p>
               <div className="flex flex-wrap gap-2">
                 {Object.entries(result.raw_scores).map(([k, v]) => (
                   <span key={k} className="rounded-md border border-border bg-bg-card px-2.5 py-1 font-mono text-[11px] text-text-secondary">
-                    {k}: {typeof v === "number" ? v.toFixed(3) : v}
+                    {k}: {typeof v === "number" ? v.toFixed(3) : String(v)}
                   </span>
                 ))}
               </div>
@@ -158,6 +205,28 @@ function PhishingTab({ token }: { token: string }) {
   const toggle = (key: string) =>
     setForm((prev) => ({ ...prev, [key]: prev[key as keyof typeof prev] === "0" ? "1" : "0" }));
 
+  const loadDemo = (type: "phishing" | "clean") => {
+    if (type === "phishing") {
+      setForm({
+        spf_fail: "1",
+        dkim_fail: "1",
+        dmarc_fail: "1",
+        domain_mismatch: "1",
+        spoofed: "1",
+        reply_to_mismatch: "1",
+      });
+    } else {
+      setForm({
+        spf_fail: "0",
+        dkim_fail: "0",
+        dmarc_fail: "0",
+        domain_mismatch: "0",
+        spoofed: "0",
+        reply_to_mismatch: "0",
+      });
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -183,19 +252,38 @@ function PhishingTab({ token }: { token: string }) {
 
   const fields = [
     { key: "spf_fail", label: "SPF Fail", hint: "SPF authentication failure" },
-    { key: "dkim_fail", label: "DKIM Fail", hint: "DKIM signature failure" },
-    { key: "dmarc_fail", label: "DMARC Fail", hint: "DMARC policy failure" },
-    { key: "domain_mismatch", label: "Domain Mismatch", hint: "From domain ≠ sending domain" },
-    { key: "spoofed", label: "Spoofed Brand", hint: "Known brand impersonation detected" },
-    { key: "reply_to_mismatch", label: "Reply-To Mismatch", hint: "Reply-To differs from From" },
+    { key: "dkim_fail", label: "DKIM Fail", hint: "DKIM cryptographic signature failure" },
+    { key: "dmarc_fail", label: "DMARC Fail", hint: "DMARC alignment policy failure" },
+    { key: "domain_mismatch", label: "Domain Mismatch", hint: "From domain != sending envelope domain" },
+    { key: "spoofed", label: "Spoofed Brand", hint: "Known brand impersonation flag" },
+    { key: "reply_to_mismatch", label: "Reply-To Mismatch", hint: "Reply-To differs from From domain" },
   ];
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
-      <p className="text-sm text-text-muted">
-        Toggle the signals that were detected in the email headers.
-        The <span className="font-semibold text-primary">RandomForest classifier</span> will predict phishing likelihood.
-      </p>
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-text-muted">
+          Toggle header indicators to evaluate with the <span className="font-semibold text-primary">RandomForest Classifier</span>.
+        </p>
+        <div className="flex gap-2 text-xs">
+          <button
+            type="button"
+            onClick={() => loadDemo("phishing")}
+            className="text-primary hover:underline font-semibold"
+          >
+            ⚡ Demo Phishing
+          </button>
+          <span>·</span>
+          <button
+            type="button"
+            onClick={() => loadDemo("clean")}
+            className="text-text-secondary hover:underline"
+          >
+            Demo Clean
+          </button>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {fields.map(({ key, label, hint }) => (
           <button
@@ -225,7 +313,7 @@ function PhishingTab({ token }: { token: string }) {
         ))}
       </div>
       <Button type="submit" disabled={loading} fullWidth>
-        {loading ? <><RefreshCw className="h-4 w-4 animate-spin mr-2" />Running…</> : "Run ML Prediction"}
+        {loading ? <><RefreshCw className="h-4 w-4 animate-spin mr-2" />Running Inference…</> : "Run RandomForest Prediction"}
       </Button>
       {error && <p className="text-sm text-risk-critical">{error}</p>}
       {result && <MLResultPanel result={result} />}
@@ -262,11 +350,29 @@ function UpiTab({ token }: { token: string }) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
-      <p className="text-sm text-text-muted">
-        Enter a UPI handle to score it with the{" "}
-        <span className="font-semibold text-primary">GradientBoosting fraud scorer</span>.
-        Features are automatically extracted from the handle string.
-      </p>
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-text-muted">
+          Analyze UPI handles using the <span className="font-semibold text-primary">GradientBoosting Scorer</span>.
+        </p>
+        <div className="flex gap-2 text-xs">
+          <button
+            type="button"
+            onClick={() => setUpiId("fake-kyc-refund99283@paytm")}
+            className="text-primary hover:underline font-semibold"
+          >
+            ⚡ Demo Fraud
+          </button>
+          <span>·</span>
+          <button
+            type="button"
+            onClick={() => setUpiId("legitimateuser@okhdfcbank")}
+            className="text-text-secondary hover:underline"
+          >
+            Demo Safe
+          </button>
+        </div>
+      </div>
+
       <div>
         <label className="block text-[11px] font-semibold uppercase tracking-wider text-text-muted mb-1.5">
           UPI Handle
@@ -277,12 +383,9 @@ function UpiTab({ token }: { token: string }) {
           value={upiId}
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => setUpiId(e.target.value)}
         />
-        <p className="mt-1.5 text-[11px] text-text-muted">
-          Try: <code className="text-primary">legitimateuser@hdfc</code>, <code className="text-risk-critical">fakePAYTMscam123@upi</code>
-        </p>
       </div>
       <Button type="submit" disabled={loading || !upiId.trim()} fullWidth>
-        {loading ? <><RefreshCw className="h-4 w-4 animate-spin mr-2" />Running…</> : "Run ML Prediction"}
+        {loading ? <><RefreshCw className="h-4 w-4 animate-spin mr-2" />Running Inference…</> : "Run GradientBoosting Prediction"}
       </Button>
       {error && <p className="text-sm text-risk-critical">{error}</p>}
       {result && <MLResultPanel result={result} />}
@@ -306,6 +409,30 @@ function NetworkTab({ token }: { token: string }) {
 
   const toggleBool = (key: string) =>
     setForm((prev) => ({ ...prev, [key]: prev[key as keyof typeof prev] === "0" ? "1" : "0" }));
+
+  const loadDemo = (type: "anomalous" | "normal") => {
+    if (type === "anomalous") {
+      setForm({
+        num_open_ports: "6",
+        has_critical: "1",
+        has_rdp: "1",
+        has_smb: "1",
+        has_db: "1",
+        has_ftp: "1",
+        has_telnet: "1",
+      });
+    } else {
+      setForm({
+        num_open_ports: "2",
+        has_critical: "0",
+        has_rdp: "0",
+        has_smb: "0",
+        has_db: "0",
+        has_ftp: "0",
+        has_telnet: "0",
+      });
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -331,21 +458,38 @@ function NetworkTab({ token }: { token: string }) {
   };
 
   const boolFields = [
-    { key: "has_critical", label: "Critical Port Open", hint: "Telnet / SMB / RDP / DB" },
-    { key: "has_rdp", label: "RDP (3389)", hint: "Remote Desktop exposed" },
-    { key: "has_smb", label: "SMB (445)", hint: "File sharing / ransomware vector" },
-    { key: "has_db", label: "MySQL (3306)", hint: "Database publicly exposed" },
+    { key: "has_critical", label: "Critical Port Open", hint: "Telnet / SMB / RDP / Database" },
+    { key: "has_rdp", label: "RDP (3389)", hint: "Remote Desktop Protocol exposed" },
+    { key: "has_smb", label: "SMB (445)", hint: "Server Message Block exposed (WannaCry vector)" },
+    { key: "has_db", label: "MySQL (3306)", hint: "Relational database exposed publicly" },
     { key: "has_ftp", label: "FTP (21)", hint: "Unencrypted file transfer" },
-    { key: "has_telnet", label: "Telnet (23)", hint: "Unencrypted remote access" },
+    { key: "has_telnet", label: "Telnet (23)", hint: "Unencrypted remote management" },
   ];
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
-      <p className="text-sm text-text-muted">
-        Describe the network port profile. The{" "}
-        <span className="font-semibold text-primary">IsolationForest anomaly detector</span> will
-        flag unusual configurations.
-      </p>
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-text-muted">
+          Unsupervised host profiling via <span className="font-semibold text-primary">IsolationForest</span>.
+        </p>
+        <div className="flex gap-2 text-xs">
+          <button
+            type="button"
+            onClick={() => loadDemo("anomalous")}
+            className="text-primary hover:underline font-semibold"
+          >
+            ⚡ Demo Anomaly
+          </button>
+          <span>·</span>
+          <button
+            type="button"
+            onClick={() => loadDemo("normal")}
+            className="text-text-secondary hover:underline"
+          >
+            Demo Normal
+          </button>
+        </div>
+      </div>
 
       <div>
         <label className="block text-[11px] font-semibold uppercase tracking-wider text-text-muted mb-1.5">
@@ -357,7 +501,7 @@ function NetworkTab({ token }: { token: string }) {
           max={50}
           value={form.num_open_ports}
           onChange={(e) => setForm((prev) => ({ ...prev, num_open_ports: e.target.value }))}
-          className="w-full rounded-lg border border-border bg-bg-main py-2.5 px-3 text-sm text-text-primary focus:border-primary focus:outline-none"
+          className="w-full rounded-lg border border-border bg-bg-main py-2 px-3 text-sm text-text-primary focus:border-primary focus:outline-none"
         />
       </div>
 
@@ -391,7 +535,7 @@ function NetworkTab({ token }: { token: string }) {
       </div>
 
       <Button type="submit" disabled={loading} fullWidth>
-        {loading ? <><RefreshCw className="h-4 w-4 animate-spin mr-2" />Running…</> : "Run ML Prediction"}
+        {loading ? <><RefreshCw className="h-4 w-4 animate-spin mr-2" />Running Inference…</> : "Run IsolationForest Prediction"}
       </Button>
       {error && <p className="text-sm text-risk-critical">{error}</p>}
       {result && <MLResultPanel result={result} />}
@@ -413,10 +557,16 @@ export default function MLPredictorPage() {
   const [user, setUser] = React.useState("");
 
   React.useEffect(() => {
-    const t = localStorage.getItem("token") || sessionStorage.getItem("token") || "";
-    const u = localStorage.getItem("userEmail") || sessionStorage.getItem("userEmail") || "";
+    // Read from standard cyberguard-token with fallback to legacy token
+    const t = localStorage.getItem("cyberguard-token") || localStorage.getItem("token") || "";
+    const u = localStorage.getItem("cyberguard-user") || localStorage.getItem("userEmail") || "";
     setToken(t);
-    setUser(u);
+    try {
+      const parsed = JSON.parse(u);
+      setUser(parsed.email || u);
+    } catch {
+      setUser(u);
+    }
   }, []);
 
   const handleSignOut = () => {
@@ -436,14 +586,13 @@ export default function MLPredictorPage() {
           <div>
             <h2 className="font-display text-lg font-bold text-text-primary">Machine Learning Threat Analysis</h2>
             <p className="mt-1 text-[13px] text-text-muted leading-relaxed">
-              Run real scikit-learn models trained on synthetic-but-realistic security data.
-              Each model returns a classification label, confidence score, and per-feature importance breakdown for full explainability.
+              Real-time inference using local scikit-learn models. Supervised models report calibrated prediction probabilities and true feature importances; unsupervised anomaly detectors report anomaly scores and active risk indicators.
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
-              <span className="rounded-full border border-border px-2.5 py-1 font-mono text-[10px] text-text-muted">RandomForest</span>
-              <span className="rounded-full border border-border px-2.5 py-1 font-mono text-[10px] text-text-muted">GradientBoosting</span>
-              <span className="rounded-full border border-border px-2.5 py-1 font-mono text-[10px] text-text-muted">IsolationForest</span>
-              <span className="rounded-full border border-border px-2.5 py-1 font-mono text-[10px] text-text-muted">scikit-learn 1.4</span>
+              <span className="rounded-full border border-border px-2.5 py-1 font-mono text-[10px] text-text-muted">RandomForest (Supervised)</span>
+              <span className="rounded-full border border-border px-2.5 py-1 font-mono text-[10px] text-text-muted">GradientBoosting (Supervised)</span>
+              <span className="rounded-full border border-border px-2.5 py-1 font-mono text-[10px] text-text-muted">IsolationForest (Unsupervised)</span>
+              <span className="rounded-full border border-border px-2.5 py-1 font-mono text-[10px] text-text-muted">scikit-learn 1.9</span>
             </div>
           </div>
         </div>
@@ -471,7 +620,7 @@ export default function MLPredictorPage() {
         <Card className="p-6">
           {!token ? (
             <div className="text-center py-8">
-              <p className="text-text-muted text-sm">You need to be logged in to use the ML Predictor.</p>
+              <p className="text-text-muted text-sm">Please log in to execute ML inferences.</p>
               <Button className="mt-4" onClick={() => (window.location.href = "/login")}>Go to Login</Button>
             </div>
           ) : (
@@ -487,9 +636,7 @@ export default function MLPredictorPage() {
         <div className="flex gap-2 text-[11px] text-text-muted rounded-lg border border-border bg-bg-card px-4 py-3">
           <Info className="h-4 w-4 flex-shrink-0 mt-0.5 text-primary" />
           <p>
-            Models are trained on <strong className="text-text-secondary">synthetic labeled data</strong> at server startup and stored on disk.
-            Predictions are non-blocking — if a model fails, the standard rule-based verdict is still returned.
-            ML predictions are also automatically attached to Email, UPI, and Network scan results.
+            <strong className="text-text-secondary">Methodological Note:</strong> Models are trained on a synthetic baseline dataset for pipeline verification. All predictions are non-blocking and explainable through genuine model parameters.
           </p>
         </div>
       </div>

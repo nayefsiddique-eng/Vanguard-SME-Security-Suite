@@ -1,0 +1,162 @@
+{
+  "phishing": {
+    "model_name": "RandomForest Phishing Classifier",
+    "algorithm": "RandomForestClassifier",
+    "version": "1.0",
+    "score_type": "probability",
+    "task": "phishing_detection",
+    "training_samples": 960,
+    "test_samples": 240,
+    "accuracy": 0.8875,
+    "precision": 0.8921,
+    "recall": 0.8875,
+    "f1_score": 0.8889,
+    "confusion_matrix": [
+      [
+        85,
+        11,
+        0
+      ],
+      [
+        5,
+        62,
+        5
+      ],
+      [
+        0,
+        6,
+        66
+      ]
+    ],
+    "labels": [
+      "CLEAN",
+      "SUSPICIOUS",
+      "PHISHING"
+    ],
+    "dataset_metadata": {
+      "dataset_type": "Synthetic Prototype Dataset",
+      "task": "phishing_detection",
+      "total_samples": 1200,
+      "feature_names": [
+        "spf_fail",
+        "dkim_fail",
+        "dmarc_fail",
+        "domain_mismatch",
+        "spoofed",
+        "reply_to_mismatch"
+      ],
+      "class_distribution": {
+        "CLEAN": 480,
+        "SUSPICIOUS": 360,
+        "PHISHING": 360
+      },
+      "random_seed": 42,
+      "generation_method": "Synthetic probabilistic generator calibrated from typical email auth failure rates"
+    },
+    "training_timestamp": "2026-09-03T16:53:02.421956Z"
+  },
+  "upi": {
+    "model_name": "GradientBoosting UPI Fraud Scorer",
+    "algorithm": "GradientBoostingClassifier",
+    "version": "1.0",
+    "score_type": "probability",
+    "task": "upi_fraud_detection",
+    "training_samples": 960,
+    "test_samples": 240,
+    "accuracy": 0.9792,
+    "precision": 0.9795,
+    "recall": 0.9792,
+    "f1_score": 0.9791,
+    "confusion_matrix": [
+      [
+        108,
+        0,
+        0
+      ],
+      [
+        2,
+        70,
+        0
+      ],
+      [
+        0,
+        3,
+        57
+      ]
+    ],
+    "labels": [
+      "SAFE",
+      "SUSPICIOUS",
+      "FRAUDULENT"
+    ],
+    "dataset_metadata": {
+      "dataset_type": "Synthetic Prototype Dataset",
+      "task": "upi_fraud_detection",
+      "total_samples": 1200,
+      "feature_names": [
+        "handle_length",
+        "has_numbers",
+        "digit_ratio",
+        "suspicious_keyword_score",
+        "brand_keyword_score",
+        "handle_entropy"
+      ],
+      "class_distribution": {
+        "SAFE": 540,
+        "SUSPICIOUS": 360,
+        "FRAUDULENT": 300
+      },
+      "random_seed": 43,
+      "generation_method": "Synthetic probabilistic generator modeling brand impersonation and handle entropy"
+    },
+    "training_timestamp": "2026-09-03T16:53:03.559659Z"
+  },
+  "network": {
+    "model_name": "IsolationForest Network Anomaly Detector",
+    "algorithm": "IsolationForest",
+    "version": "1.0",
+    "score_type": "anomaly_score",
+    "task": "network_anomaly_detection",
+    "training_samples": 750,
+    "test_samples": 250,
+    "precision": 0.875,
+    "recall": 0.98,
+    "f1_score": 0.9245,
+    "false_positive_rate": 0.035,
+    "confusion_matrix": [
+      [
+        193,
+        7
+      ],
+      [
+        1,
+        49
+      ]
+    ],
+    "labels": [
+      "NORMAL",
+      "ANOMALOUS"
+    ],
+    "dataset_metadata": {
+      "dataset_type": "Synthetic Prototype Dataset",
+      "task": "network_anomaly_detection",
+      "total_samples": 1000,
+      "feature_names": [
+        "num_open_ports",
+        "has_critical",
+        "has_rdp",
+        "has_smb",
+        "has_db",
+        "has_ftp",
+        "has_telnet"
+      ],
+      "class_distribution": {
+        "NORMAL": 800,
+        "ANOMALOUS": 200
+      },
+      "random_seed": 44,
+      "generation_method": "Synthetic port distribution baseline with high-risk exposure injections"
+    },
+    "training_timestamp": "2026-09-03T16:53:04.187847Z"
+  }
+}

@@ -177,6 +177,26 @@ export default function UpiPage() {
                 Verify Payment
               </Button>
             </div>
+            <div className="mt-2 flex items-center justify-between text-xs text-text-muted">
+              <span>Format: handle@psp (e.g. user@okhdfcbank)</span>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setUpiId("fake-kyc-refund99283@paytm")}
+                  className="text-primary hover:underline font-semibold"
+                >
+                  ⚡ Load Fraud Demo
+                </button>
+                <span>·</span>
+                <button
+                  type="button"
+                  onClick={() => setUpiId("legitimate.merchant@okaxis")}
+                  className="text-text-secondary hover:underline"
+                >
+                  Load Safe Demo
+                </button>
+              </div>
+            </div>
           </>
         )}
 
@@ -201,6 +221,7 @@ export default function UpiPage() {
               onReset={handleReset}
               resetLabel="Verify Another"
               rawResult={result.rawResult}
+              mlPrediction={result.rawResult?.ml_prediction}
             >
               {result.flags && result.flags.length > 0 && (
                 <div className="mt-3 space-y-1">

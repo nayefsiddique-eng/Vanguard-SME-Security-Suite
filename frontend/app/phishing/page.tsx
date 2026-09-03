@@ -246,10 +246,30 @@ export default function PhishingPage() {
                   "min-h-[160px] resize-y"
                 )}
               />
-              <p className="mt-2 text-xs text-text-muted flex items-center gap-1.5">
-                <AlertTriangle className="h-3.5 w-3.5" />
-                In Gmail: Open email → three dots menu → Show original → Copy all
-              </p>
+              <div className="mt-2 flex items-center justify-between text-xs text-text-muted">
+                <p className="flex items-center gap-1.5">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  In Gmail: Open email → three dots menu → Show original → Copy all
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setInputVal(`From: support@paytm.com.malicious-verify.ru\nReply-To: security@fraud-stealer.xyz\nReturn-Path: <bounce@malicious-verify.ru>\nSubject: URGENT: Your Paytm Wallet KYC is Expiring\nReceived-SPF: fail (domain does not designate permitted sender)\nAuthentication-Results: mx.google.com; spf=fail; dkim=fail; dmarc=fail`)}
+                  className="text-primary hover:underline font-semibold"
+                >
+                  ⚡ Load Phishing Demo Sample
+                </button>
+              </div>
+            </div>
+          )}
+          {mode === "url" && (
+            <div className="mt-2 text-right">
+              <button
+                type="button"
+                onClick={() => setInputVal("http://paytm-kyc-update-login.ru/verify")}
+                className="text-xs text-primary hover:underline font-semibold"
+              >
+                ⚡ Load Suspicious URL Demo
+              </button>
             </div>
           )}
         </div>
@@ -300,6 +320,7 @@ export default function PhishingPage() {
               onReset={handleReset}
               resetLabel="Scan Again"
               rawResult={result.rawResult}
+              mlPrediction={result.rawResult?.ml_prediction}
             >
               {mode === "url" && typeof result.enginesFlagged === "number" && (
                 <div className="rounded-lg bg-bg-main p-3 text-sm text-text-secondary border border-border">

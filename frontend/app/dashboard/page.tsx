@@ -117,6 +117,9 @@ export default function DashboardPage() {
     threatsFound: 0,
     scansClean: 0,
     alertsActive: 0,
+    totalScans: 0,
+    mlDetections: 0,
+    anomaliesDetected: 0,
     riskScore: 100,
     overallRisk: "None" as "None" | "Low" | "Medium" | "High" | "Critical"
   });
@@ -212,9 +215,12 @@ export default function DashboardPage() {
           mediumRisk: summary.medium_risk || 0,
           lowRisk: summary.low_risk || 0,
           criticalRisk: summary.critical_risk || 0,
-          threatsFound: summary.high_risk + summary.critical_risk,
-          scansClean: summary.low_risk,
+          threatsFound: summary.threats_found !== undefined ? summary.threats_found : (summary.high_risk + summary.critical_risk),
+          scansClean: summary.scans_clean !== undefined ? summary.scans_clean : summary.low_risk,
           alertsActive: summary.high_risk + summary.critical_risk,
+          totalScans: summary.total_scans !== undefined ? summary.total_scans : historyData.length,
+          mlDetections: summary.ml_detections || 0,
+          anomaliesDetected: summary.anomalies_detected || 0,
           riskScore: rollingScore,
           overallRisk: computedRisk
         });
@@ -306,7 +312,15 @@ export default function DashboardPage() {
           <div className="my-5 border-t border-dashed border-[rgba(255,255,255,0.06)]" />
 
           {/* Stats Grid */}
-          <div className="grid grid-cols-3 gap-4 text-center">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
+            <div>
+              <p className="font-display text-2xl font-bold text-text-primary">
+                {stats.totalScans}
+              </p>
+              <p className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-text-muted">
+                Total Scans
+              </p>
+            </div>
             <div>
               <p className="font-display text-2xl font-bold text-risk-critical">
                 {stats.threatsFound}
@@ -324,11 +338,11 @@ export default function DashboardPage() {
               </p>
             </div>
             <div>
-              <p className="font-display text-2xl font-bold text-yellow-500">
-                {stats.alertsActive}
+              <p className="font-display text-2xl font-bold text-primary">
+                {stats.mlDetections}
               </p>
               <p className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-text-muted">
-                Alerts Active
+                ML Evaluated
               </p>
             </div>
           </div>

@@ -4,10 +4,18 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 import { RiskBadge } from "./risk-badge";
 import { Button } from "./button";
-import { Sparkles, Send } from "lucide-react";
+import { Sparkles, Send, Brain } from "lucide-react";
 
 export type Verdict = "CLEAN" | "INFECTED" | "DANGEROUS" | "SUSPICIOUS" | "PHISHING" | "ERROR";
 export type Severity = "None" | "Low" | "Medium" | "High" | "Critical";
+
+export interface MLFeatureItem {
+  name: string;
+  value: number;
+  importance?: number;
+  contribution?: string;
+  description?: string;
+}
 
 export interface MLFeatureImportance {
   feature: string;
@@ -15,13 +23,21 @@ export interface MLFeatureImportance {
 }
 
 export interface MLPrediction {
+  model?: string;
+  model_version?: string;
+  task?: string;
+  prediction?: string;
+  score?: number;
+  score_type?: "probability" | "anomaly_score" | string;
+  risk_level?: "HIGH" | "MEDIUM" | "LOW" | string;
+  explanation: string;
+  features?: MLFeatureItem[];
+  model_name: string;
   label: string;
   confidence: number;
   confidence_pct: number;
-  explanation: string;
   feature_importances: MLFeatureImportance[];
-  model_name: string;
-  raw_scores?: Record<string, number>;
+  raw_scores?: Record<string, any>;
 }
 
 interface ResultCardProps {
@@ -58,25 +74,27 @@ export function ResultCard({
   children,
   className,
   rawResult,
-  mlPrediction,
+  mlPrediction: explicitMlPrediction,
 }: ResultCardProps) {
   const [chatInput, setChatInput] = React.useState("");
   const [chatMessages, setChatMessages] = React.useState<ChatMessage[]>(initialChat);
   const [isAiTyping, setIsAiTyping] = React.useState(false);
   const [showSignals, setShowSignals] = React.useState(false);
-  const [showMl, setShowMl] = React.useState(false);
+  const [showMl, setShowMl] = React.useState(true);
+
+  // Derive mlPrediction from explicit prop or rawResult fallback
+  const mlPrediction: MLPrediction | undefined =
+    explicitMlPrediction || (rawResult && rawResult.ml_prediction ? rawResult.ml_prediction : undefined);
 
   const handleAskAI = (e: React.FormEvent) => {
     e.preventDefault();
     if (!chatInput.trim() || isAiTyping) return;
 
-    // Add user message
     const userMsg = chatInput.trim();
     setChatMessages((prev) => [...prev, { role: "user", content: userMsg }]);
     setChatInput("");
     setIsAiTyping(true);
 
-    // Mock AI response (Backend developer will replace this with real API call)
     setTimeout(() => {
       setChatMessages((prev) => [
         ...prev,
@@ -88,7 +106,7 @@ export function ResultCard({
         },
       ]);
       setIsAiTyping(false);
-    }, 1500);
+    }, 1200);
   };
 
   const isError = verdict === "ERROR";
@@ -105,6 +123,14 @@ export function ResultCard({
       </div>
     );
   }
+
+  const isAnomalyModel =
+    mlPrediction?.score_type === "anomaly_score" ||
+    mlPrediction?.model === "IsolationForest" ||
+    mlPrediction?.model_name?.toLowerCase().includes("isolation");
+
+  const scoreLabel = isAnomalyModel ? "Anomaly Score" : "Confidence";
+  const displayScorePct = mlPrediction?.confidence_pct ?? Math.round((mlPrediction?.score ?? 0) * 100);
 
   return (
     <div
@@ -138,25 +164,30 @@ export function ResultCard({
       </h3>
       <p className="mt-1 font-mono text-[13px] text-text-muted">{target}</p>
 
-      {/* Custom Content (e.g. Email Headers) */}
+      {/* Custom Content */}
       {children && <div className="mt-5">{children}</div>}
 
       {/* Divider */}
       <div className="my-5 border-t border-dashed border-[rgba(255,255,255,0.06)] [data-theme='light']_&:border-[rgba(0,0,0,0.08)]" />
 
-      {/* AI Explanation */}
-      <div className="rounded-lg border-l-2 border-primary bg-primary-dim px-4 py-3">
-        <p className="text-[15px] italic text-text-primary">{aiExplanation}</p>
+      {/* Security Rule Findings / Heuristic Summary */}
+      <div>
+        <p className="mb-2 text-[10px] font-bold uppercase tracking-[1.5px] text-text-muted">
+          Security Rule Analysis
+        </p>
+        <div className="rounded-lg border-l-2 border-primary bg-primary-dim px-4 py-3">
+          <p className="text-[14px] text-text-primary leading-relaxed">{aiExplanation}</p>
+        </div>
       </div>
 
-      {/* Explainable AI / Detection Signals (Phase 8 #2) */}
+      {/* Explainable AI / Detection Signals */}
       {rawResult && (rawResult.raw_ports || rawResult.threat_name || rawResult.spf_status || rawResult.verdict) && (
         <div className="mt-4">
           <button
             onClick={() => setShowSignals(!showSignals)}
             className="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-text-muted hover:text-text-primary transition-colors focus:outline-none"
           >
-            {showSignals ? "Hide Detection Signals ▴" : "Show Detection Signals ▾"}
+            {showSignals ? "Hide Raw Detection Signals ▴" : "Show Raw Detection Signals ▾"}
           </button>
           
           {showSignals && (
@@ -190,7 +221,7 @@ export function ResultCard({
                 <div className="grid grid-cols-3 gap-2 text-center">
                   <div className="border border-border/40 p-2 rounded bg-bg-main/50">
                     <span className="block text-[10px] text-text-muted">SPF</span>
-                    <span className={cn("font-bold", rawResult.spf_status === "FAIL" ? "text-risk-critical" : "text-risk-safe")}>
+                    <span className={cn("font-bold", rawResult.spf_status === "FAIL" || rawResult.spf_status === "SOFTFAIL" ? "text-risk-critical" : "text-risk-safe")}>
                       {rawResult.spf_status || "NONE"}
                     </span>
                   </div>
@@ -220,14 +251,15 @@ export function ResultCard({
         </div>
       )}
 
-      {/* ML Prediction Panel */}
+      {/* ML Prediction Panel (Standardized across all scan types) */}
       {mlPrediction && (
-        <div className="mt-4">
+        <div className="mt-5">
           <button
             onClick={() => setShowMl(!showMl)}
             className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-primary hover:text-primary-hover transition-colors focus:outline-none"
           >
-            <span>🧠 ML Analysis</span>
+            <Brain className="h-4 w-4" />
+            <span>ML Analysis ({mlPrediction.model || mlPrediction.model_name})</span>
             <span className={cn(
               "inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold",
               mlPrediction.label === "PHISHING" || mlPrediction.label === "FRAUDULENT" || mlPrediction.label === "ANOMALOUS"
@@ -236,7 +268,7 @@ export function ResultCard({
                 ? "bg-risk-moderate-dim text-risk-moderate"
                 : "bg-risk-safe-dim text-risk-safe"
             )}>
-              {mlPrediction.label}
+              {mlPrediction.prediction || mlPrediction.label}
             </span>
             <span className="text-text-muted font-normal normal-case tracking-normal">
               {showMl ? "▴" : "▾"}
@@ -244,39 +276,85 @@ export function ResultCard({
           </button>
 
           {showMl && (
-            <div className="mt-3 rounded-lg border border-primary/20 bg-primary-dim/20 p-4 space-y-4">
+            <div className="mt-3 rounded-xl border border-primary/30 bg-primary-dim/20 p-5 space-y-4">
               <div className="flex items-center justify-between">
-                <span className="text-[10px] text-text-muted font-mono uppercase tracking-wider">{mlPrediction.model_name}</span>
-                <span className="text-[11px] font-bold text-text-primary">{mlPrediction.confidence_pct}% confidence</span>
-              </div>
-              <div className="h-2 w-full rounded-full bg-border overflow-hidden">
-                <div
-                  className={cn(
-                    "h-full rounded-full transition-all duration-500",
-                    mlPrediction.confidence_pct >= 75
-                      ? "bg-risk-critical"
-                      : mlPrediction.confidence_pct >= 50
-                      ? "bg-risk-moderate"
-                      : "bg-risk-safe"
-                  )}
-                  style={{ width: `${mlPrediction.confidence_pct}%` }}
-                />
-              </div>
-              <p className="text-[13px] text-text-secondary leading-relaxed">{mlPrediction.explanation}</p>
-              {mlPrediction.feature_importances.length > 0 && (
                 <div>
-                  <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-text-muted">Feature Importances</p>
+                  <span className="text-[11px] font-semibold text-text-primary block">
+                    {mlPrediction.model_name}
+                  </span>
+                  {mlPrediction.task && (
+                    <span className="text-[10px] font-mono text-text-muted uppercase">
+                      Task: {mlPrediction.task}
+                    </span>
+                  )}
+                </div>
+                <span className="text-[12px] font-bold text-text-primary bg-bg-card px-2.5 py-1 rounded-md border border-border">
+                  {scoreLabel}: {displayScorePct}%
+                </span>
+              </div>
+
+              {/* Confidence / Anomaly Score Bar */}
+              <div className="space-y-1">
+                <div className="h-2 w-full rounded-full bg-border overflow-hidden">
+                  <div
+                    className={cn(
+                      "h-full rounded-full transition-all duration-500",
+                      displayScorePct >= 70
+                        ? (isAnomalyModel ? "bg-risk-critical" : "bg-risk-critical")
+                        : displayScorePct >= 40
+                        ? "bg-risk-moderate"
+                        : "bg-risk-safe"
+                    )}
+                    style={{ width: `${Math.min(100, Math.max(0, displayScorePct))}%` }}
+                  />
+                </div>
+              </div>
+
+              <p className="text-[13px] text-text-secondary leading-relaxed bg-bg-main/40 p-3 rounded-lg border border-border/50">
+                {mlPrediction.explanation}
+              </p>
+
+              {/* Explainability Breakdown: Contributing Signals vs Genuine Feature Importances */}
+              {isAnomalyModel ? (
+                <div>
+                  <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-text-muted">
+                    Contributing Signals & Risk Indicators
+                  </p>
+                  <div className="space-y-2">
+                    {(mlPrediction.features || []).map((f) => (
+                      <div key={f.name} className="flex items-start justify-between text-xs py-1 border-b border-border/30 gap-3">
+                        <div>
+                          <span className="font-mono text-text-primary font-medium">{f.name}</span>
+                          {f.description && <p className="text-[11px] text-text-muted">{f.description}</p>}
+                        </div>
+                        <span className={cn(
+                          "font-bold text-[10px] px-2 py-0.5 rounded",
+                          f.contribution === "positive" ? "bg-risk-critical/10 text-risk-critical" : "bg-border text-text-muted"
+                        )}>
+                          {f.value > 0 ? (f.value === 1 ? "ACTIVE" : f.value) : "INACTIVE"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-text-muted">
+                    Feature Importances (Model Trained Weights)
+                  </p>
                   <div className="space-y-1.5">
-                    {mlPrediction.feature_importances.slice(0, 5).map((fi) => {
-                      const maxImportance = mlPrediction.feature_importances[0].importance;
-                      const pct = maxImportance > 0 ? Math.round((fi.importance / maxImportance) * 100) : 0;
+                    {(mlPrediction.feature_importances || []).slice(0, 6).map((fi) => {
+                      const maxImp = (mlPrediction.feature_importances && mlPrediction.feature_importances[0]?.importance) || 1;
+                      const pct = maxImp > 0 ? Math.round((fi.importance / maxImp) * 100) : 0;
                       return (
                         <div key={fi.feature} className="flex items-center gap-2">
-                          <span className="w-36 shrink-0 font-mono text-[10px] text-text-muted truncate">{fi.feature}</span>
+                          <span className="w-40 shrink-0 font-mono text-[11px] text-text-muted truncate">{fi.feature}</span>
                           <div className="flex-1 h-1.5 rounded-full bg-border overflow-hidden">
-                            <div className="h-full rounded-full bg-primary/60" style={{ width: `${pct}%` }} />
+                            <div className="h-full rounded-full bg-primary/70" style={{ width: `${pct}%` }} />
                           </div>
-                          <span className="w-10 text-right font-mono text-[10px] text-text-muted">{(fi.importance * 100).toFixed(1)}%</span>
+                          <span className="w-12 text-right font-mono text-[10px] text-text-muted">
+                            {(fi.importance * 100).toFixed(1)}%
+                          </span>
                         </div>
                       );
                     })}

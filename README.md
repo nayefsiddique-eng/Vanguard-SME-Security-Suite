@@ -2,18 +2,17 @@
 
 # 🛡️ Vanguard SME Security Suite
 
-**A unified cybersecurity scanning and posture-monitoring platform for small and medium businesses**
+**A unified cybersecurity scanning, posture-monitoring, and explainable Machine Learning threat detection platform for small and medium businesses**
 
-[![Next.js](https://img.shields.io/badge/Next.js-14-000000?style=flat&logo=next.js&logoColor=white)](https://nextjs.org/)
+[![Next.js](https://img.shields.io/badge/Next.js-16-000000?style=flat&logo=next.js&logoColor=white)](https://nextjs.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110-009688?style=flat&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=flat&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![scikit-learn](https://img.shields.io/badge/scikit--learn-1.9-F7931E?style=flat&logo=scikit-learn&logoColor=white)](https://scikit-learn.org/)
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=flat&logo=python&logoColor=white)](https://www.python.org/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![License](https://img.shields.io/badge/License-Unlicensed-lightgrey?style=flat)]()
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 
-*Personal portfolio project — not a commercial product*
+*Demonstration project for technical and hackathon evaluation*
 
-[Overview](#project-overview) • [Features](#key-features) • [Architecture](#architecture) • [Getting Started](#getting-started) • [Roadmap](#roadmap)
+[Overview](#project-overview) • [ML Architecture](#machine-learning-architecture) • [Features](#key-features) • [Getting Started](#getting-started) • [Judge Evaluation Demo](#judge-evaluation-walkthrough)
 
 </div>
 
@@ -21,316 +20,166 @@
 
 ## Project Overview
 
-Small and medium businesses are frequent targets of phishing, malware, network intrusion, and payment fraud, but rarely have the budget or staffing for a dedicated security operations team. Existing tools tend to be either enterprise SIEM platforms priced and built for large security teams, or single-purpose consumer tools (one antivirus, one phishing checker) that never talk to each other.
+Small and medium businesses are frequent targets of phishing, malware, network intrusion, and payment fraud, but rarely have the budget or staffing for a dedicated security operations team.
 
-Vanguard SME Security Suite consolidates five common attack-surface checks — file/malware, malicious URLs, network exposure, phishing email, and UPI payment fraud — into a single authenticated dashboard, then correlates the results into one running security posture score instead of five disconnected reports. High-severity findings are automatically escalated into incidents tagged against real MITRE ATT&CK tactics and techniques.
+**Vanguard SME Security Suite** consolidates five critical attack-surface checks — file/malware, malicious URLs, network exposure, phishing email, and UPI payment fraud — into a single authenticated dashboard. It pairs **deterministic security rules** with **three explainable Machine Learning models**, correlating results into an overall security posture score and auto-escalating findings into incidents mapped to the **MITRE ATT&CK** framework.
 
-This project was built as a portfolio/IEEE-track demonstration of full-stack security engineering — API design, authentication, threat-detection integration, and correlation logic — not as a production SOC platform.
+---
+
+## Machine Learning Architecture
+
+```
+                       ┌─────────────────────────┐
+                       │       User Input        │
+                       │ (Email / UPI / Network) │
+                       └────────────┬────────────┘
+                                    │
+                                    ▼
+                       ┌─────────────────────────┐
+                       │    Security Scanner     │
+                       │ (Headers / Nmap / PSP)  │
+                       └────────────┬────────────┘
+                                    │
+                                    ▼
+                       ┌─────────────────────────┐
+                       │   Feature Extraction    │
+                       │(Numeric vector + bounds)│
+                       └────────────┬────────────┘
+                                    │
+                                    ▼
+                       ┌─────────────────────────┐
+                       │        ML Model         │
+                       │  (RF / GB / IsoForest)  │
+                       └────────────┬────────────┘
+                                    │
+                                    ▼
+                       ┌─────────────────────────┐
+                       │ Prediction & Explain    │
+                       │(Probas, Scores, Signals)│
+                       └────────────┬────────────┘
+                                    │
+                                    ▼
+                       ┌─────────────────────────┐
+                       │     FastAPI Endpoint    │
+                       │ (/api/scan/* & /api/ml) │
+                       └────────────┬────────────┘
+                                    │
+                                    ▼
+                       ┌─────────────────────────┐
+                       │   Next.js ResultCard    │
+                       │   (🧠 ML Analysis UI)   │
+                       └─────────────────────────┘
+```
+
+### The Three Models
+
+| Vector | Algorithm | Task | Score Type | Explainability Mechanism |
+|---|---|---|---|---|
+| **Email Phishing** | `RandomForestClassifier` | `phishing_detection` | Probability (0–100%) | Genuine tree-split `feature_importances_` |
+| **UPI Fraud** | `GradientBoostingClassifier` | `upi_fraud_detection` | Probability (0–100%) | Genuine boosted `feature_importances_` |
+| **Network Anomaly** | `IsolationForest` | `network_anomaly_detection` | Anomaly Score (0–100%) | Ranked **Contributing Signals / Risk Indicators** |
+
+> [!IMPORTANT]
+> **Dataset Methodology & Honest Scoping:**  
+> The current prototype models are trained on a controlled, reproducible **Synthetic Prototype Dataset** for pipeline validation, demonstration stability, and explainability verification. Production deployment requires ongoing validation and retraining using curated real-world telemetry. The backend tracks dataset metadata and records full train/test evaluation metrics (Accuracy, Precision, Recall, F1-score, and False Positive Rate) retrievable via `GET /api/ml/model-info`.
 
 ---
 
 ## Key Features
 
-### Core Detection
+### 1. Detection Engines
+* **Email Phishing Analyzer**: Heuristic parser for SPF, DKIM, DMARC, and lookalike domains paired with a **Random Forest** classifier.
+* **UPI Payment Fraud Verifier**: Handle syntax validation, brand keyword detection, and entropy scoring paired with a **Gradient Boosting** fraud scorer.
+* **Network Exposure Scanner**: Port scanning via Nmap (with safe socket-level fallback) paired with an **Isolation Forest** anomaly detector.
+* **Malware & File Scanner**: Scans binary files for known malware signatures with ClamAV.
+* **URL Reputation Scanner**: Cross-references links against threat intelligence feeds via VirusTotal.
 
-| Module | What it does | Backing technology |
-|---|---|---|
-| File / Malware Scan | Scans uploaded files for known malware signatures | ClamAV |
-| URL Scanner | Checks URLs against reputation/threat databases | VirusTotal API |
-| Network Scanner | Scans a target for open ports and exposed services | Nmap |
-| Email / Phishing Analyzer | Validates SPF/DKIM/DMARC, flags lookalike domains and brand impersonation | Custom heuristic engine |
-| UPI Fraud Check | Validates UPI handle format and flags known fraud patterns | Custom heuristic engine (format-level only) |
+### 2. Explainable UX (ResultCard)
+The application strictly separates **Security Rule Analysis** from **ML Analysis**:
+* Displays explicit confidence probabilities for supervised classifiers and **Anomaly Scores** for Isolation Forest.
+* Displays genuine feature importances for tree models and ranked active risk indicators for unsupervised anomaly detection (never fabricated weights).
+* Built-in interactive AI assistant to explain technical terms to non-technical SME owners.
 
-### Correlation & Posture
-
-| Feature | Description |
-|---|---|
-| Security Posture Score | Rolling trend score aggregated from historical scan results across all five tools |
-| IOC Correlation Engine | Links related findings across scans and auto-escalates matches into incidents |
-| MITRE ATT&CK Mapping | High-severity incidents are tagged with real ATT&CK tactic/technique IDs — verified working against live scan data |
-
-### Explainability
-
-| Feature | Description |
-|---|---|
-| Detection Signals Panel | Expandable per-result breakdown showing the specific signals behind a verdict, rather than an opaque score |
-
-### Access & Reporting
-
-| Feature | Description |
-|---|---|
-| JWT Authentication | Token-based auth on all protected routes |
-| Role-Based Access Control | Roles include SOC Analyst, Threat Hunter, Admin |
-| Rate Limiting | Per-endpoint request throttling via SlowAPI |
-| Text Incident Report Export | One-click plain-text report generation for any incident |
-
-> **Note:** This project does not currently include enterprise features (multi-tenant orgs, SSO, SIEM integrations), trained ML/AI models, or scheduled/automated scanning. See Roadmap for what is intentionally out of scope today.
-
----
-
-## Architecture
-
-```mermaid
-flowchart TB
-    User([User]) --> FE[Next.js Frontend]
-    FE -->|JWT Bearer Auth| API[FastAPI Backend]
-
-    API --> Auth[Auth and RBAC Layer]
-    API --> Routes[API Routes]
-
-    Routes --> Scan[Scan Services]
-    Scan --> ClamAV[ClamAV Engine]
-    Scan --> VT[VirusTotal Client]
-    Scan --> Nmap[Nmap Scanner]
-    Scan --> Email[Email/Phishing Analyzer]
-    Scan --> UPI[UPI Format Checker]
-
-    Scan --> Correlation[IOC Correlation Engine]
-    Correlation --> MITRE[MITRE ATT&CK Mapper]
-    Correlation --> DB[(PostgreSQL)]
-
-    Routes --> Reports[Text Report Generator]
-    Routes --> DB
-```
-
-### Request Flow
-
-```
-User -> Frontend (Next.js) -> Backend (FastAPI, JWT-verified)
-     -> Scan Service (ClamAV / VirusTotal / Nmap / Email / UPI)
-     -> Correlation Engine -> MITRE Mapper -> PostgreSQL
-     -> Result returned to Dashboard
-```
-
----
-
-## Technology Stack
-
-| Layer | Technology |
-|---|---|
-| Frontend Framework | Next.js (App Router), React, TypeScript |
-| Styling | Tailwind CSS |
-| Charts | Recharts |
-| Backend Framework | FastAPI (Python 3.12) |
-| Database | PostgreSQL via SQLAlchemy |
-| Authentication | JWT (python-jose), bcrypt |
-| Rate Limiting | SlowAPI |
-| Malware Scanning | ClamAV |
-| Threat Intelligence | VirusTotal API |
-| Network Scanning | Nmap |
-| Deployment | Not yet containerized |
-
----
-
-## Screenshots
-
-> Add real screenshots to `docs/screenshots/` before publishing. Placeholders below.
-
-| View | Image |
-|---|---|
-| Dashboard | `![Dashboard](docs/screenshots/dashboard.png)` |
-| Scan Result | `![Scan Result](docs/screenshots/scan-result.png)` |
-| Incident Report | `![Incident](docs/screenshots/incident.png)` |
+### 3. Posture Trend & Incident Correlation
+* **Rolling Posture Score**: Aggregated dynamic rating across all scan history.
+* **MITRE ATT&CK Mapping**: High-severity incidents are auto-correlated and tagged with authentic tactic and technique IDs.
+* **Live Dashboard Intelligence**: Tracks Total Scans, Threats Found, Clean Scans, and ML-evaluated inspections in real time.
 
 ---
 
 ## Getting Started
 
 ### Prerequisites
-- Node.js 18+
-- Python 3.12
-- PostgreSQL 14+
+* Python 3.12+
+* Node.js 18+
 
-### 1. Clone
-
-```bash
-git clone https://github.com/nayefsiddique-eng/vanguard-sme-suite.git
-cd vanguard-sme-suite
-```
-
-### 2. Install dependencies
+### 1. Backend Setup
 
 ```bash
-npm run install:all
-```
+cd backend
+# Create environment
+py -3.12 -m venv venv
+venv\Scripts\activate
 
-### 3. Configure environment
+# Install dependencies
+pip install -r requirements.txt
+
+# Start backend server (trains/loads ML models on startup)
+uvicorn app.main:app --reload --port 8000
+```
+Backend Swagger API Docs: `http://localhost:8000/docs`
+
+### 2. Frontend Setup
 
 ```bash
-cp backend/.env.example backend/.env
-```
-
-Then fill in `backend/.env`:
-
-```
-DATABASE_URL=postgresql://user:password@localhost:5432/vanguard
-SECRET_KEY=<generate with: python -c "import secrets; print(secrets.token_hex(32))">
-```
-
-### 4. Run
-
-```bash
+cd frontend
+npm install
 npm run dev
 ```
-
-Frontend: `http://localhost:3000`
-Backend docs (Swagger): `http://localhost:8000/docs`
+Frontend Web Dashboard: `http://localhost:3000`
 
 ---
 
-## API Reference
+## Judge Evaluation Walkthrough
 
-| Method | Endpoint | Description | Auth Required |
-|---|---|---|---|
-| POST | `/register` | Create a new user account | No |
-| POST | `/login` | Authenticate and receive a JWT | No |
-| POST | `/api/scan/file` | Submit a file for malware scanning | Yes |
-| POST | `/api/scan/url` | Submit a URL for reputation check | Yes |
-| POST | `/api/scan/network` | Submit a target for port/service scan | Yes |
-| POST | `/api/scan/email` | Submit email headers for phishing analysis | Yes |
-| POST | `/api/scan/upi` | Submit a UPI handle for fraud check | Yes |
-| GET | `/scan-history` | Retrieve the current users scan history | Yes |
-| GET | `/incidents` | Retrieve correlated incidents | Yes |
-| GET | `/api/reports/{incident_id}/text` | Export a text report for an incident | Yes |
+The suite includes pre-configured, deterministic demonstration test cases on every page for immediate hackathon judging:
+
+### 1. Phishing Detection Demo (`/phishing`)
+* Navigate to **Phishing Analyser** → switch to **Email Header Analyser**.
+* Click **"⚡ Load Phishing Demo Sample"** and click **Analyze Headers**.
+* **Expected Result**: Rule analysis flags SPF/DKIM failures and Paytm brand impersonation. The **🧠 ML Analysis** panel expands to reveal the **Random Forest** prediction (`PHISHING`), confidence score, and feature importances.
+
+### 2. UPI Fraud Detection Demo (`/upi`)
+* Navigate to **UPI Payment Verifier**.
+* Click **"⚡ Load Fraud Demo"** (loads `fake-kyc-refund99283@paytm`) and click **Verify Payment**.
+* **Expected Result**: The **Gradient Boosting** scorer classifies the handle as high risk with detailed lexical and entropy signal contributions.
+
+### 3. Network Anomaly Detection Demo (`/ransomware`)
+* Scroll down to **Network Vulnerability Check**.
+* Click **"⚡ Load Anomalous Host Demo"** and click **Quick Scan**.
+* **Expected Result**: Nmap identifies exposed critical services (Ports 23, 445, 3389, 3306). The **Isolation Forest** model reports an **Anomaly Score: ~75%** with active **Contributing Signals** (Telnet, SMB, RDP, MySQL).
+
+### 4. Direct ML Predictor Dashboard (`/ml-predictor`)
+* Navigate to **ML Threat Predictor** in the sidebar.
+* Switch between Email Phishing, UPI Fraud, and Network Anomaly tabs to test custom feature values or click one-click demo presets.
 
 ---
 
-## Folder Structure
+## Automated Test Verification
 
+Run the comprehensive test suite verifying authentication, ML model metadata, scanner pipelines, and input validation:
+
+```powershell
+py -3.12 -m pytest backend/test_main.py -v
 ```
-vanguard-sme-suite/
-├── backend/
-│   ├── app/
-│   │   ├── api/            # Route handlers (scan, auth, incidents, history)
-│   │   ├── core/           # Config, security (JWT/hashing), RBAC
-│   │   ├── db/              # SQLAlchemy models and database session
-│   │   ├── schemas/         # Pydantic request/response models
-│   │   ├── services/        # Scanner integrations, correlation, MITRE mapping
-│   │   └── main.py          # FastAPI app instance
-│   ├── test_main.py
-│   └── requirements.txt
-├── frontend/
-│   ├── app/                 # Next.js pages (dashboard, phishing, ransomware, upi, reports)
-│   ├── components/cyber/    # Scan result cards, risk badges, posture chart
-│   ├── hooks/ lib/           # Shared frontend utilities
-│   └── package.json
-├── docs/
-│   └── screenshots/          # Place real screenshots here
-└── package.json               # Monorepo dev/install scripts
-```
-
----
-
-## Security Modules
-
-**ClamAV File Scanner** — Purpose: detect known malware signatures. Input: uploaded file. Output: verdict + matched signature.
-
-**VirusTotal URL Scanner** — Purpose: check URLs against threat intel. Input: URL string. Output: verdict + detection ratio.
-
-**Nmap Network Scanner** — Purpose: identify open ports/services. Input: target host. Output: port list + exposure summary.
-
-**Email/Phishing Analyzer** — Purpose: detect phishing/impersonation. Input: email headers. Output: SPF/DKIM/DMARC results + flags.
-
-**UPI Fraud Checker** — Purpose: flag suspicious UPI handles. Input: UPI string. Output: format validity + capped-confidence risk verdict. Does not verify real ownership.
-
-**IOC Correlation Engine** — Purpose: link findings across scans into incidents. Input: scan results. Output: incident records with MITRE mapping.
-
----
-
-## AI & Automated Reasoning
-
-This project does not use trained machine learning models or datasets. "Explainability" refers to structured, rule-based signal surfacing, not a predictive model. This is intentional scoping.
-
----
-
-## Dashboard
-
-| Widget | What it shows |
-|---|---|
-| Security Posture Score | Rolling score trend line from scan history |
-| Recent Scans | Latest results across all five tools |
-| Incidents | Auto-correlated incidents with MITRE ATT&CK tags |
-| Detection Signals | Expandable explanation of triggering signals |
-
----
-
-## Project Highlights
-
-- Five independent detection tools unified behind one authenticated API and one posture score
-- Real, verified MITRE ATT&CK mapping confirmed producing actual tactic/technique data from live scans
-- Honest scoping: format-only UPI checks and text-only reports documented as limitations rather than glossed over
-
----
-
-## Roadmap
-
-**Completed**
-- [x] JWT auth + RBAC across all protected routes
-- [x] Five scan tool integrations
-- [x] IOC correlation engine with auto-incident creation
-- [x] MITRE ATT&CK mapping (verified end-to-end)
-- [x] Security posture trend dashboard
-- [x] Explainable detection-signals panel
-- [x] Text-based incident report export
-
-**In Progress**
-- [ ] Database migration tooling
-- [ ] Full audit log wiring for all user actions
-
-**Future**
-- [ ] Real UPI ownership verification via PSP-side API
-- [ ] PDF report export
-- [ ] Docker containerization
-- [ ] CI pipeline
-
----
-
-## Benchmarks
-
-Benchmark results will be published once formal load/accuracy testing is conducted. None are available at this time.
-
----
-
-## Contributing
-
-This is currently a personal portfolio project and not actively seeking external contributions. Feel free to open an issue for bugs or suggestions.
-
----
-
-## License
-
-No license file has been added yet. All rights reserved by default until one is chosen.
-
----
-
-## Acknowledgements
-
-- [ClamAV](https://www.clamav.net/)
-- [VirusTotal](https://www.virustotal.com/)
-- [Nmap](https://nmap.org/)
-- [MITRE ATT&CK](https://attack.mitre.org/)
-- [FastAPI](https://fastapi.tiangolo.com/), [Next.js](https://nextjs.org/), [shadcn/ui](https://ui.shadcn.com/)
+All 10 integration tests run end-to-end against the live FastAPI application and scikit-learn models.
 
 ---
 
 ## Authors
 
-1. **Mohammed Nayef Siddique** (Chair, IEEE Computer Society Student Branch | [GitHub](https://github.com/nayefsiddique-eng))
-2. **Noor Laiba Maheen**
-3. **Sobiya Ayaz**
-4. **Nadira Fatima Sireen Sultana**
-5. **Mohammed Ameen Ul Haq**
-
----
-
-## Support
-
-For issues or questions, please open a GitHub issue.
-
----
-
-<div align="center">
-
-*Built as part of ongoing cybersecurity and AI portfolio development.*
-
-</div>
+* **Mohammed Nayef Siddique** (Chair, IEEE Computer Society Student Branch | [GitHub](https://github.com/nayefsiddique-eng))
+* **Noor Laiba Maheen**
+* **Sobiya Ayaz**
+* **Nadira Fatima Sireen Sultana**
+* **Mohammed Ameen Ul Haq**

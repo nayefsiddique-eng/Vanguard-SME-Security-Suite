@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, EmailStr, field_validator
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 import re
 
 class DeviceData(BaseModel):
@@ -46,9 +46,10 @@ class NetworkScanRequest(BaseModel):
         v = v.strip()
         if not v:
             raise ValueError("Target cannot be empty")
+        # Ensure target is valid IP or valid domain name without shell injection characters
         ip_pattern = r"^([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])(\.([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9]))*$"
-        if not re.match(ip_pattern, v):
-            raise ValueError("Invalid target format. Must be a valid IP or hostname.")
+        if not re.match(ip_pattern, v) or len(v) > 253:
+            raise ValueError("Invalid target format. Must be a valid IP address or hostname without special shell characters.")
         return v
 
 class EmailScanRequest(BaseModel):
@@ -60,6 +61,8 @@ class EmailScanRequest(BaseModel):
         v = v.strip()
         if not v:
             raise ValueError("Email header cannot be empty")
+        if len(v) > 100000:
+            raise ValueError("Email header exceeds maximum permissible length (100KB)")
         return v
 
 class UPIScanRequest(BaseModel):
@@ -73,7 +76,42 @@ class UPIScanRequest(BaseModel):
             raise ValueError("UPI ID cannot be empty")
         if "@" not in v:
             raise ValueError("Invalid UPI ID format. Must contain '@'")
+        upi_pattern = r"^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$"
+        if not re.match(upi_pattern, v):
+            raise ValueError("Invalid UPI handle syntax. Expected format: handle@bank")
         return v
+
+# ── ML Schemas ───────────────────────────────────────────────────────────────
+
+class MLFeatureItem(BaseModel):
+    name: str
+    value: float
+    importance: Optional[float] = 0.0
+    contribution: Optional[str] = "neutral"
+    description: Optional[str] = None
+
+class FeatureImportanceItem(BaseModel):
+    feature: str
+    importance: float
+
+class MLPredictionSchema(BaseModel):
+    model: str
+    model_version: str
+    task: str
+    prediction: str
+    score: float
+    score_type: str                     # "probability" | "anomaly_score"
+    risk_level: str                     # "HIGH" | "MEDIUM" | "LOW"
+    explanation: str
+    features: List[MLFeatureItem]
+    model_name: str
+    label: str                          # Backwards compatibility
+    confidence: float                   # Backwards compatibility
+    confidence_pct: int                 # Backwards compatibility
+    feature_importances: List[FeatureImportanceItem]
+    raw_scores: Optional[Dict[str, Any]] = None
+
+# ── Scan Result ──────────────────────────────────────────────────────────────
 
 class ScanResult(BaseModel):
     tool: str
@@ -81,6 +119,7 @@ class ScanResult(BaseModel):
     severity: str
     summary: str
     actions: List[str]
+    target: Optional[str] = None
     subject: Optional[str] = None
     from_domain: Optional[str] = None
     reply_to_domain: Optional[str] = None
@@ -95,23 +134,8 @@ class ScanResult(BaseModel):
     threat_name: Optional[str] = None
     threat_type: Optional[str] = None
     raw_ports: Optional[List[dict]] = None
-    ml_prediction: Optional["MLPredictionSchema"] = None
+    total_open_ports: Optional[int] = None
+    ml_prediction: Optional[MLPredictionSchema] = None
 
-
-class FeatureImportanceItem(BaseModel):
-    feature: str
-    importance: float
-
-
-class MLPredictionSchema(BaseModel):
-    label: str
-    confidence: float
-    confidence_pct: int
-    explanation: str
-    feature_importances: List[FeatureImportanceItem]
-    model_name: str
-    raw_scores: Optional[dict] = None
-
-
-# Required for forward reference resolution
+# Forward ref rebuild
 ScanResult.model_rebuild()

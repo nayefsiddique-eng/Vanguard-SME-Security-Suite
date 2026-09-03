@@ -145,18 +145,19 @@ export default function RansomwarePage() {
         throw new Error(errData.detail || "Network port scanning failed.");
       }
       const raw = await res.json();
+      const rawPortsList = raw.raw_ports || raw.ports || [];
       setPortResult({
         tool: raw.tool || "nmap",
         verdict: raw.verdict,
         severity: raw.severity,
         title: raw.verdict === "DANGEROUS" ? "Network Vulnerabilities Found" : "Network Appears Secure",
         target: portIp,
-        total_open_ports: raw.total_open_ports || 0,
-        ports: (raw.ports || []).map((p: any) => ({
+        total_open_ports: raw.total_open_ports !== undefined ? raw.total_open_ports : rawPortsList.length,
+        ports: rawPortsList.map((p: any) => ({
           port: p.port,
           service: p.service,
           risk: p.risk,
-          note: p.reason
+          note: p.reason || p.note || "Exposed port",
         })),
         aiExplanation: raw.summary,
         actions: raw.actions,
@@ -292,6 +293,26 @@ export default function RansomwarePage() {
                 Deep Scan
               </Button>
             </div>
+            <div className="mt-2 flex items-center justify-between text-xs text-text-muted">
+              <span>Scan ports on internal hosts, routers, or servers</span>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPortIp("demo.vanguard.local")}
+                  className="text-primary hover:underline font-semibold"
+                >
+                  ⚡ Load Anomalous Host Demo
+                </button>
+                <span>·</span>
+                <button
+                  type="button"
+                  onClick={() => setPortIp("127.0.0.1")}
+                  className="text-text-secondary hover:underline"
+                >
+                  Load Localhost
+                </button>
+              </div>
+            </div>
 
             {portScanning && (
               <LoadingState
@@ -317,6 +338,7 @@ export default function RansomwarePage() {
                   onReset={() => { setPortResult(null); setPortIp(""); }}
                   resetLabel="Clear Network Scan"
                   rawResult={portResult.rawResult}
+                  mlPrediction={portResult.rawResult?.ml_prediction}
                 >
                   <p className="text-xs text-text-muted mb-3 uppercase tracking-wider font-semibold">
                     {portResult.total_open_ports} Open Ports Found

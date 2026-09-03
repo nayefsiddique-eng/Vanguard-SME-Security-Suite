@@ -174,7 +174,8 @@ export default function ReportsPage() {
               title: parsedResult.title || parsedResult.summary || "Scan Completed",
               flags: parsedResult.flags || (parsedResult.malicious_engines ? [`${parsedResult.malicious_engines} malicious flags`] : ["Completed scan successfully"]),
               aiExplanation: parsedResult.summary || parsedResult.aiExplanation || "Scan verified by secure sandbox.",
-              actions: parsedResult.actions || ["No critical actions required."]
+              actions: parsedResult.actions || ["No critical actions required."],
+              rawResult: parsedResult
             }
           };
         });
@@ -300,6 +301,8 @@ export default function ReportsPage() {
                             actions={scan.result.actions}
                             onReset={() => setExpandedId(null)}
                             resetLabel="Collapse ▴"
+                            rawResult={scan.result.rawResult}
+                            mlPrediction={scan.result.rawResult?.ml_prediction}
                           >
                             {scan.result.flags && scan.result.flags.length > 0 && (
                               <div className="mt-3 space-y-1">
