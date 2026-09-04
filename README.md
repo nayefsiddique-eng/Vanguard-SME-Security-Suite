@@ -1,185 +1,152 @@
-<div align="center">
-
 # 🛡️ Vanguard SME Security Suite
 
-**A unified cybersecurity scanning, posture-monitoring, and explainable Machine Learning threat detection platform for small and medium businesses**
+**Unified Cybersecurity & Threat Detection Dashboard for Small and Medium Enterprises**
 
-[![Next.js](https://img.shields.io/badge/Next.js-16-000000?style=flat&logo=next.js&logoColor=white)](https://nextjs.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.110-009688?style=flat&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![scikit-learn](https://img.shields.io/badge/scikit--learn-1.9-F7931E?style=flat&logo=scikit-learn&logoColor=white)](https://scikit-learn.org/)
-[![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=flat&logo=python&logoColor=white)](https://www.python.org/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-
-*Demonstration project for technical and hackathon evaluation*
-
-[Overview](#project-overview) • [ML Architecture](#machine-learning-architecture) • [Features](#key-features) • [Getting Started](#getting-started) • [Judge Evaluation Demo](#judge-evaluation-walkthrough)
-
-</div>
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/backend-FastAPI-009688.svg)](https://fastapi.tiangolo.com/)
+[![Next.js](https://img.shields.io/badge/frontend-Next.js%2014-black.svg)](https://nextjs.org/)
+[![scikit-learn](https://img.shields.io/badge/ML-scikit--learn-F7931E.svg)](https://scikit-learn.org/)
+[![License](https://img.shields.io/badge/license-MIT-lightgrey.svg)](LICENSE)
 
 ---
 
-## Project Overview
+## 📌 Overview
 
-Small and medium businesses are frequent targets of phishing, malware, network intrusion, and payment fraud, but rarely have the budget or staffing for a dedicated security operations team.
+**Vanguard** is a unified cybersecurity dashboard designed to simplify attack-surface monitoring for Small and Medium Enterprises (SMEs). Built as a full-stack monorepo with FastAPI and Next.js, it aggregates five distinct threat-detection tools into a single authenticated console.
 
-**Vanguard SME Security Suite** consolidates five critical attack-surface checks — file/malware, malicious URLs, network exposure, phishing email, and UPI payment fraud — into a single authenticated dashboard. It pairs **deterministic security rules** with **three explainable Machine Learning models**, correlating results into an overall security posture score and auto-escalating findings into incidents mapped to the **MITRE ATT&CK** framework.
+Rather than reporting isolated events, Vanguard pairs traditional heuristic scanning rules with machine learning classifiers (Random Forest, Gradient Boosting, and Isolation Forest) to predict threats, explain findings, and map incidents to the **MITRE ATT&CK** matrix.
 
 ---
 
-## Machine Learning Architecture
+## 🏗️ Architecture & ML Pipeline
 
-```
-                       ┌─────────────────────────┐
-                       │       User Input        │
-                       │ (Email / UPI / Network) │
-                       └────────────┬────────────┘
-                                    │
-                                    ▼
-                       ┌─────────────────────────┐
-                       │    Security Scanner     │
-                       │ (Headers / Nmap / PSP)  │
-                       └────────────┬────────────┘
-                                    │
-                                    ▼
-                       ┌─────────────────────────┐
-                       │   Feature Extraction    │
-                       │(Numeric vector + bounds)│
-                       └────────────┬────────────┘
-                                    │
-                                    ▼
-                       ┌─────────────────────────┐
-                       │        ML Model         │
-                       │  (RF / GB / IsoForest)  │
-                       └────────────┬────────────┘
-                                    │
-                                    ▼
-                       ┌─────────────────────────┐
-                       │ Prediction & Explain    │
-                       │(Probas, Scores, Signals)│
-                       └────────────┬────────────┘
-                                    │
-                                    ▼
-                       ┌─────────────────────────┐
-                       │     FastAPI Endpoint    │
-                       │ (/api/scan/* & /api/ml) │
-                       └────────────┬────────────┘
-                                    │
-                                    ▼
-                       ┌─────────────────────────┐
-                       │   Next.js ResultCard    │
-                       │   (🧠 ML Analysis UI)   │
-                       └─────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph Client["Next.js Frontend (Port 3000)"]
+        UI[Dashboard / Scanning Tools / ResultCard UI]
+    end
+
+    subgraph Backend["FastAPI Backend (Port 8000)"]
+        API[API Endpoints /api/scan/* & /api/ml]
+        FE[Feature Extraction Engine]
+        
+        subgraph Models["Scikit-Learn ML Models"]
+            RF[Random Forest - Phishing Classifier]
+            GB[Gradient Boosting - UPI Fraud Scorer]
+            IF[Isolation Forest - Network Anomaly Detector]
+        end
+
+        subgraph Heuristics["Rule Engines & Threat Feeds"]
+            Rules[SPF/DKIM/DMARC & Lexical Rules]
+            AV[ClamAV Malware & VirusTotal Integration]
+        end
+    end
+
+    UI --> API
+    API --> FE
+    FE --> Models & Heuristics
 ```
 
-### The Three Models
+---
 
-| Vector | Algorithm | Task | Score Type | Explainability Mechanism |
+## 🤖 Machine Learning Model Architecture
+
+| Threat Vector | Algorithm | Model Task | Output Metric | Explainability Mechanism |
 |---|---|---|---|---|
-| **Email Phishing** | `RandomForestClassifier` | `phishing_detection` | Probability (0–100%) | Genuine tree-split `feature_importances_` |
-| **UPI Fraud** | `GradientBoostingClassifier` | `upi_fraud_detection` | Probability (0–100%) | Genuine boosted `feature_importances_` |
-| **Network Anomaly** | `IsolationForest` | `network_anomaly_detection` | Anomaly Score (0–100%) | Ranked **Contributing Signals / Risk Indicators** |
-
-> [!IMPORTANT]
-> **Dataset Methodology & Honest Scoping:**  
-> The current prototype models are trained on a controlled, reproducible **Synthetic Prototype Dataset** for pipeline validation, demonstration stability, and explainability verification. Production deployment requires ongoing validation and retraining using curated real-world telemetry. The backend tracks dataset metadata and records full train/test evaluation metrics (Accuracy, Precision, Recall, F1-score, and False Positive Rate) retrievable via `GET /api/ml/model-info`.
+| **Email Phishing** | `RandomForestClassifier` | Phishing Detection | Probability (0–100%) | Tree-split `feature_importances_` |
+| **UPI Payment Fraud** | `GradientBoostingClassifier` | UPI Fraud Detection | Probability (0–100%) | Boosted `feature_importances_` |
+| **Network Anomaly** | `IsolationForest` | Anomaly Detection | Anomaly Score (0–100%) | Ranked Contributing Signals & Indicators |
 
 ---
 
-## Key Features
+## 🛡️ Key Features & Detection Modules
 
-### 1. Detection Engines
-* **Email Phishing Analyzer**: Heuristic parser for SPF, DKIM, DMARC, and lookalike domains paired with a **Random Forest** classifier.
-* **UPI Payment Fraud Verifier**: Handle syntax validation, brand keyword detection, and entropy scoring paired with a **Gradient Boosting** fraud scorer.
-* **Network Exposure Scanner**: Port scanning via Nmap (with safe socket-level fallback) paired with an **Isolation Forest** anomaly detector.
-* **Malware & File Scanner**: Scans binary files for known malware signatures with ClamAV.
-* **URL Reputation Scanner**: Cross-references links against threat intelligence feeds via VirusTotal.
+### 1. Threat Detection Engines
+- **Email Phishing Analyzer**: Parses SPF, DKIM, DMARC, and lookalike domain headers, evaluated by a **Random Forest** model.
+- **UPI Fraud Verifier**: Validates VPA syntax, flags brand keyword spoofing, and calculates entropy via **Gradient Boosting**.
+- **Network Anomaly Scanner**: Port scanner with safe fallback, evaluated by an **Isolation Forest** anomaly detector.
+- **Malware & File Scanner**: Scans file uploads against malware signature patterns.
+- **URL Reputation Scanner**: Cross-references suspicious URLs against threat intelligence APIs.
 
 ### 2. Explainable UX (ResultCard)
-The application strictly separates **Security Rule Analysis** from **ML Analysis**:
-* Displays explicit confidence probabilities for supervised classifiers and **Anomaly Scores** for Isolation Forest.
-* Displays genuine feature importances for tree models and ranked active risk indicators for unsupervised anomaly detection (never fabricated weights).
-* Built-in interactive AI assistant to explain technical terms to non-technical SME owners.
+- Clear separation between **Heuristic Rule Results** and **ML Model Probabilities**.
+- Feature importance visualization displaying why a specific model flagged an asset.
+- Built-in AI assistant explaining technical findings in plain language for non-technical business owners.
 
-### 3. Posture Trend & Incident Correlation
-* **Rolling Posture Score**: Aggregated dynamic rating across all scan history.
-* **MITRE ATT&CK Mapping**: High-severity incidents are auto-correlated and tagged with authentic tactic and technique IDs.
-* **Live Dashboard Intelligence**: Tracks Total Scans, Threats Found, Clean Scans, and ML-evaluated inspections in real time.
+### 3. Incident Correlation & Posture Monitoring
+- **Dynamic Posture Score**: Aggregated health rating based on historical scan telemetry.
+- **MITRE ATT&CK Mapping**: High-severity threats are auto-tagged with MITRE tactics and techniques.
 
 ---
 
-## Getting Started
+## 🚀 Quickstart
 
 ### Prerequisites
-* Python 3.12+
-* Node.js 18+
+- Python 3.12+
+- Node.js 18+
 
 ### 1. Backend Setup
 
 ```bash
+# Navigate to backend
 cd backend
-# Create environment
-py -3.12 -m venv venv
-venv\Scripts\activate
 
-# Install dependencies
+# Create and activate virtual environment
+python -m venv venv
+# On Windows:
+.\venv\Scripts\activate
+# On Linux/macOS:
+source venv/bin/activate
+
+# Install Python dependencies
 pip install -r requirements.txt
 
-# Start backend server (trains/loads ML models on startup)
+# Launch FastAPI backend (loads & trains ML models at startup)
 uvicorn app.main:app --reload --port 8000
 ```
-Backend Swagger API Docs: `http://localhost:8000/docs`
+*API documentation available at `http://localhost:8000/docs`.*
 
 ### 2. Frontend Setup
 
 ```bash
+# Navigate to frontend
 cd frontend
+
+# Install Node dependencies
 npm install
+
+# Start Next.js development server
 npm run dev
 ```
-Frontend Web Dashboard: `http://localhost:3000`
+*Access web interface at `http://localhost:3000`.*
 
 ---
 
-## Judge Evaluation Walkthrough
+## 🧪 Testing
 
-The suite includes pre-configured, deterministic demonstration test cases on every page for immediate hackathon judging:
+Run backend tests verifying ML model initialization, scanner endpoints, and authentication:
 
-### 1. Phishing Detection Demo (`/phishing`)
-* Navigate to **Phishing Analyser** → switch to **Email Header Analyser**.
-* Click **"⚡ Load Phishing Demo Sample"** and click **Analyze Headers**.
-* **Expected Result**: Rule analysis flags SPF/DKIM failures and Paytm brand impersonation. The **🧠 ML Analysis** panel expands to reveal the **Random Forest** prediction (`PHISHING`), confidence score, and feature importances.
-
-### 2. UPI Fraud Detection Demo (`/upi`)
-* Navigate to **UPI Payment Verifier**.
-* Click **"⚡ Load Fraud Demo"** (loads `fake-kyc-refund99283@paytm`) and click **Verify Payment**.
-* **Expected Result**: The **Gradient Boosting** scorer classifies the handle as high risk with detailed lexical and entropy signal contributions.
-
-### 3. Network Anomaly Detection Demo (`/ransomware`)
-* Scroll down to **Network Vulnerability Check**.
-* Click **"⚡ Load Anomalous Host Demo"** and click **Quick Scan**.
-* **Expected Result**: Nmap identifies exposed critical services (Ports 23, 445, 3389, 3306). The **Isolation Forest** model reports an **Anomaly Score: ~75%** with active **Contributing Signals** (Telnet, SMB, RDP, MySQL).
-
-### 4. Direct ML Predictor Dashboard (`/ml-predictor`)
-* Navigate to **ML Threat Predictor** in the sidebar.
-* Switch between Email Phishing, UPI Fraud, and Network Anomaly tabs to test custom feature values or click one-click demo presets.
-
----
-
-## Automated Test Verification
-
-Run the comprehensive test suite verifying authentication, ML model metadata, scanner pipelines, and input validation:
-
-```powershell
-py -3.12 -m pytest backend/test_main.py -v
+```bash
+pytest backend/test_main.py -v
 ```
-All 10 integration tests run end-to-end against the live FastAPI application and scikit-learn models.
 
 ---
 
-## Authors
+## 📁 Repository Structure
 
-* **Mohammed Nayef Siddique** (Chair, IEEE Computer Society Student Branch | [GitHub](https://github.com/nayefsiddique-eng))
-* **Noor Laiba Maheen**
-* **Sobiya Ayaz**
-* **Nadira Fatima Sireen Sultana**
-* **Mohammed Ameen Ul Haq**
+```
+Vanguard-SME-Security-Suite/
+├── backend/
+│   ├── app/
+│   │   ├── api/             # FastAPI routes for scanning & ML endpoints
+│   │   ├── core/            # Config, security, & database settings
+│   │   ├── ml/              # Scikit-learn model definitions & feature extractors
+│   │   └── services/        # Scanning engine logic (Phishing, UPI, Network)
+│   ├── test_main.py         # Pytest integration test suite
+│   └── requirements.txt
+├── frontend/
+│   ├── src/                 # Next.js pages, components, & ResultCard UI
+│   ├── public/
+│   └── package.json
+└── README.md
+```
