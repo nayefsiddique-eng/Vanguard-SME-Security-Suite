@@ -237,3 +237,22 @@ def test_virustotal_timeout_is_not_reported_as_clean(monkeypatch):
     monkeypatch.setattr(virustotal.requests, "post", timeout)
     result = virustotal.check_url("https://example.invalid")
     assert result["verdict"] == "ERROR"
+
+
+def test_health_and_missing_clamav(monkeypatch):
+    from app.services import clamav_scanner
+
+    monkeypatch.delenv("CLAMAV_EXECUTABLE", raising=False)
+    monkeypatch.setattr(clamav_scanner.shutil, "which", lambda _: None)
+    assert client.get("/health").json() == {"status": "ok"}
+    assert clamav_scanner.scan_file("synthetic.txt")["verdict"] == "ERROR"
+
+
+def test_clamav_command_error_never_reports_clean(monkeypatch):
+    from subprocess import CompletedProcess
+    from app.services import clamav_scanner
+
+    monkeypatch.setenv("CLAMAV_EXECUTABLE", "synthetic-scanner")
+    monkeypatch.setattr(clamav_scanner.subprocess, "run", lambda *a, **kw: CompletedProcess(a, 2, "", ""))
+    result = clamav_scanner.scan_file("synthetic.txt")
+    assert result["verdict"] == "ERROR"

@@ -77,3 +77,8 @@ async def add_security_headers(request: Request, call_next):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     return response
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}

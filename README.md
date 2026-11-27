@@ -161,3 +161,16 @@ Live network scans accept only IPv4 addresses listed in the backend's
 `APPROVED_NETWORK_TARGETS` environment variable. Leave the list empty for
 demo-only operation. The file scanner accepts files up to 10 MiB. Configure a
 request-body limit at the ingress as well to bound multipart parsing.
+
+### Container configuration
+
+The backend image runs as a non-root user and checks `GET /health`. Supply
+`DATABASE_URL` and a random `SECRET_KEY`. A local SQLite container can use
+`sqlite:////data/vanguard.db`. Mount persistent storage at `/data` if needed.
+
+For local PostgreSQL with Compose, set `VANGUARD_POSTGRES_PASSWORD`,
+`VANGUARD_DATABASE_URL` for the `db` service, and `VANGUARD_SECRET_KEY`.
+The connection URL must use the same database password with URL encoding when
+needed. The API port binds to loopback. PostgreSQL stays on the Compose network.
+Provide a current ClamAV signature database at `/var/lib/clamav` for live
+malware scanning. Missing signatures or scanner failures return an error.
