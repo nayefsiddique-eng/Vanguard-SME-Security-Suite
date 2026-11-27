@@ -1,3 +1,5 @@
+import time
+
 import requests
 import json
 from app.core.config import VIRUSTOTAL_API_KEY as API_KEY
@@ -28,25 +30,52 @@ URL_ACTIONS = {
     ]
 }
 
+def unavailable_result(url, summary):
+    return {
+        "tool": "virustotal",
+        "url": url,
+        "target": url,
+        "verdict": "ERROR",
+        "severity": "None",
+        "summary": summary,
+        "actions": ["Retry when VirusTotal is available."],
+    }
+
+
 def check_url(url):
+    if not API_KEY or API_KEY == "your_virustotal_api_key_here":
+        return unavailable_result(url, "VirusTotal credentials are missing.")
+
     headers = {"x-apikey": API_KEY}
+    try:
+        submission = requests.post(
+            "https://www.virustotal.com/api/v3/urls",
+            headers=headers,
+            data={"url": url},
+            timeout=(3, 10),
+        )
+        submission.raise_for_status()
+        analysis_id = submission.json()["data"]["id"]
 
-    response = requests.post(
-        "https://www.virustotal.com/api/v3/urls",
-        headers=headers,
-        data={"url": url}
-    )
-    result = response.json()
-    analysis_id = result["data"]["id"]
-
-    analysis = requests.get(
-        f"https://www.virustotal.com/api/v3/analyses/{analysis_id}",
-        headers=headers
-    ).json()
-
-    stats = analysis["data"]["attributes"]["stats"]
-    malicious = stats["malicious"]
-    suspicious = stats["suspicious"]
+        for attempt in range(3):
+            analysis = requests.get(
+                f"https://www.virustotal.com/api/v3/analyses/{analysis_id}",
+                headers=headers,
+                timeout=(3, 10),
+            )
+            analysis.raise_for_status()
+            attributes = analysis.json()["data"]["attributes"]
+            if attributes.get("status") == "completed":
+                break
+            if attempt < 2:
+                time.sleep(1)
+        else:
+            return unavailable_result(url, "VirusTotal analysis is still pending.")
+        stats = attributes["stats"]
+        malicious = int(stats["malicious"])
+        suspicious = int(stats["suspicious"])
+    except (requests.RequestException, KeyError, TypeError, ValueError):
+        return unavailable_result(url, "VirusTotal could not complete this request.")
 
     if malicious > 0:
         verdict = "dangerous"

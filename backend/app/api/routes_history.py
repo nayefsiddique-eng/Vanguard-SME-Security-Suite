@@ -16,7 +16,7 @@ def get_scan_history(current_user: str = Depends(get_current_user), db: Session 
 
 @router.get("/scan-history/{scan_id}")
 def get_scan(scan_id: int, current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
-    scan = db.query(ScanHistory).filter(ScanHistory.id == scan_id).first()
+    scan = db.query(ScanHistory).filter(ScanHistory.id == scan_id, ScanHistory.user_email == current_user).first()
     if not scan:
         raise HTTPException(
             status_code=404,
@@ -26,7 +26,7 @@ def get_scan(scan_id: int, current_user: str = Depends(get_current_user), db: Se
 
 @router.delete("/scan-history/{scan_id}")
 def delete_scan(scan_id: int, current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
-    scan = db.query(ScanHistory).filter(ScanHistory.id == scan_id).first()
+    scan = db.query(ScanHistory).filter(ScanHistory.id == scan_id, ScanHistory.user_email == current_user).first()
     if not scan:
         raise HTTPException(
             status_code=404,

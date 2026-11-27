@@ -150,3 +150,14 @@ Vanguard-SME-Security-Suite/
 │   └── package.json
 └── README.md
 ```
+
+### Local tests and live scan configuration
+
+From `backend/`, run `python -m pip install -r requirements-dev.txt` and
+`python -m pytest -q test_main.py`. Tests use disposable SQLite storage and a
+deterministic network scan demo profile.
+
+Live network scans accept only IPv4 addresses listed in the backend's
+`APPROVED_NETWORK_TARGETS` environment variable. Leave the list empty for
+demo-only operation. The file scanner accepts files up to 10 MiB. Configure a
+request-body limit at the ingress as well to bound multipart parsing.

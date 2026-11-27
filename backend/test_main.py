@@ -1,9 +1,12 @@
 import os
+import tempfile
+from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-# Ensure test environment variables
-os.environ["DATABASE_URL"] = "sqlite:///./test_db.db"
+# Use an isolated database for each test run.
+test_dir = tempfile.TemporaryDirectory(prefix="vanguard-tests-")
+os.environ["DATABASE_URL"] = f"sqlite:///{Path(test_dir.name) / 'vanguard.db'}"
 os.environ["SECRET_KEY"] = "testsecretkey-for-hardened-mvp-suite"
 os.environ["ALLOWED_ORIGINS"] = "http://localhost:3000"
 
@@ -12,7 +15,6 @@ from app.db.database import Base, engine
 from app.ml.trainer import ensure_models_ready, get_model_metadata
 
 # Setup test database & ensure ML models are initialized
-Base.metadata.drop_all(bind=engine)
 Base.metadata.create_all(bind=engine)
 ensure_models_ready()
 
@@ -184,3 +186,54 @@ def test_dashboard_summary_metrics():
     assert data["total_scans"] >= 1
     assert "ml_detections" in data
     assert data["ml_detections"] >= 1
+
+
+def test_unapproved_live_target_is_rejected_before_nmap(monkeypatch):
+    from app.services import nmap_scanner
+
+    monkeypatch.delenv("APPROVED_NETWORK_TARGETS", raising=False)
+
+    def fail_if_called(*args, **kwargs):
+        pytest.fail("An unapproved target reached the scanner")
+
+    monkeypatch.setattr(nmap_scanner.subprocess, "run", fail_if_called)
+    assert nmap_scanner.scan("198.51.100.3")["verdict"] == "ERROR"
+
+
+def test_oversized_file_rejected_before_clamav(monkeypatch):
+    from app.api import routes_scan
+
+    monkeypatch.setattr(routes_scan, "MAX_UPLOAD_BYTES", 4)
+
+    def fail_if_called(*args, **kwargs):
+        pytest.fail("An oversized file reached ClamAV")
+
+    monkeypatch.setattr(routes_scan, "scan_file", fail_if_called)
+    headers = get_auth_headers("file-test@example.com")
+    response = client.post("/api/scan/file", files={"file": ("sample.txt", b"12345")}, headers=headers)
+    assert response.status_code == 413
+
+
+def test_scan_history_is_scoped_to_account():
+    owner = get_auth_headers("history-owner@example.com")
+    other = get_auth_headers("history-other@example.com")
+    assert client.post("/api/scan/upi", json={"upi_id": "test@example"}, headers=owner).status_code == 200
+    record = client.get("/scan-history", headers=owner).json()[0]
+    path = f"/scan-history/{record['id']}"
+    assert client.get(path, headers=other).status_code == 404
+    assert client.delete(path, headers=other).status_code == 404
+    assert client.get(path, headers=owner).status_code == 200
+
+
+def test_virustotal_timeout_is_not_reported_as_clean(monkeypatch):
+    from app.services import virustotal
+
+    monkeypatch.setattr(virustotal, "API_KEY", "synthetic-test-key")
+
+    def timeout(*args, **kwargs):
+        assert kwargs["timeout"] == (3, 10)
+        raise virustotal.requests.Timeout()
+
+    monkeypatch.setattr(virustotal.requests, "post", timeout)
+    result = virustotal.check_url("https://example.invalid")
+    assert result["verdict"] == "ERROR"

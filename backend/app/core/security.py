@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
-from jose import jwt, JWTError
+import jwt
+from jwt import InvalidTokenError
 import bcrypt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -38,7 +39,7 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(oauth2_
                 headers={"WWW-Authenticate": "Bearer"},
             )
         return email
-    except JWTError:
+    except InvalidTokenError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
