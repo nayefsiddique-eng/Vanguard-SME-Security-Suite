@@ -2,13 +2,13 @@
 
 import * as React from "react";
 import { AppLayout, TopBar, Button, RiskBadge, RiskDot, ResultCard, Card } from "@/components/cyber";
-import { ChevronRight, ChevronDown, ChevronUp, Link2 } from "lucide-react";
+import { ChevronRight, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { API_URL } from "@/lib/config";
 
 type RiskLevel = "safe" | "moderate" | "critical";
-type ScanType = "Phishing" | "File" | "UPI";
+type ScanType = "Phishing" | "File" | "UPI" | "Network";
 type TimeFilter = "today" | "week" | "month";
 
 interface ScanEntry {
@@ -16,6 +16,7 @@ interface ScanEntry {
   target: string;
   type: ScanType;
   time: string;
+  timestamp: number;
   date: string;
   risk: RiskLevel;
   result: {
@@ -23,65 +24,16 @@ interface ScanEntry {
     flags: string[];
     aiExplanation: string;
     actions: string[];
+    rawResult?: Record<string, any>;
   };
 }
 
-const mockScans: ScanEntry[] = [
-  {
-    id: "1", target: "paytm-secure.xyz", type: "Phishing", time: "14:22",
-    date: "MON 19 MAY 2026", risk: "critical",
-    result: {
-      title: "High-risk phishing link detected",
-      flags: ["Domain registered 2 days ago", "Impersonates PayTM"],
-      aiExplanation: "This URL is designed to trick you into entering your PayTM credentials.",
-      actions: ["Do NOT click this link", "Report to your bank"],
-    },
-  },
-  {
-    id: "2", target: "SERVER_RACK_04.exe", type: "File", time: "12:05",
-    date: "MON 19 MAY 2026", risk: "safe",
-    result: {
-      title: "File appears clean",
-      flags: ["No malicious signatures found"],
-      aiExplanation: "No threats detected in this file.",
-      actions: ["Safe to open"],
-    },
-  },
-  {
-    id: "3", target: "MerchantID_7712@ybl", type: "UPI", time: "09:45",
-    date: "MON 19 MAY 2026", risk: "moderate",
-    result: {
-      title: "UPI ID needs caution",
-      flags: ["Account registered recently"],
-      aiExplanation: "This UPI ID has limited history.",
-      actions: ["Verify the recipient's identity"],
-    },
-  },
-  {
-    id: "4", target: "invoice_march.pdf", type: "File", time: "16:30",
-    date: "SUN 18 MAY 2026", risk: "safe",
-    result: {
-      title: "File appears clean",
-      flags: ["No malicious signatures found"],
-      aiExplanation: "Standard PDF file with no embedded threats.",
-      actions: ["Safe to open"],
-    },
-  },
-  {
-    id: "5", target: "hdfc-update.com", type: "Phishing", time: "11:15",
-    date: "SUN 18 MAY 2026", risk: "critical",
-    result: {
-      title: "Phishing link detected",
-      flags: ["Impersonates HDFC Bank", "Newly registered domain"],
-      aiExplanation: "This domain is designed to steal banking credentials.",
-      actions: ["Block this URL", "Report to HDFC fraud team"],
-    },
-  },
-];
+const riskSeverity = { safe: "None", moderate: "Medium", critical: "Critical" } as const;
 
 export default function ReportsPage() {
   const [scans, setScans] = React.useState<ScanEntry[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [loadError, setLoadError] = React.useState(false);
   const [typeFilter, setTypeFilter] = React.useState<"All" | ScanType>("All");
   const [timeFilter, setTimeFilter] = React.useState<TimeFilter>("month");
   const [expandedId, setExpandedId] = React.useState<string | null>(null);
@@ -161,28 +113,33 @@ export default function ReportsPage() {
           
           let scanType: ScanType = "Phishing";
           if (item.scan_type.includes("File")) scanType = "File";
-          else if (item.scan_type.includes("Network")) scanType = "UPI";
+          else if (item.scan_type.includes("Network")) scanType = "Network";
+          else if (item.scan_type.includes("UPI")) scanType = "UPI";
+
+          const timestamp = Date.parse(item.timestamp);
+          const date = Number.isFinite(timestamp) ? new Date(timestamp) : null;
           
           return {
             id: String(item.id),
             target: item.target,
             type: scanType,
-            time: "Today",
-            date: "RECENT SCAN",
+            timestamp,
+            time: date?.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) ?? "Unknown time",
+            date: date?.toLocaleDateString() ?? "Unknown date",
             risk,
             result: {
               title: parsedResult.title || parsedResult.summary || "Scan Completed",
               flags: parsedResult.flags || (parsedResult.malicious_engines ? [`${parsedResult.malicious_engines} malicious flags`] : ["Completed scan successfully"]),
-              aiExplanation: parsedResult.summary || parsedResult.aiExplanation || "Scan verified by secure sandbox.",
+              aiExplanation: parsedResult.summary || parsedResult.aiExplanation || "No scan explanation is available.",
               actions: parsedResult.actions || ["No critical actions required."],
               rawResult: parsedResult
             }
           };
         });
-        setScans(formatted.length > 0 ? formatted : mockScans);
+        setScans(formatted);
       } catch (err) {
-        console.warn("Could not load reports from API, using mocks", err);
-        setScans(mockScans);
+        console.warn("Could not load scan history", err);
+        setLoadError(true);
       } finally {
         setLoading(false);
       }
@@ -190,10 +147,12 @@ export default function ReportsPage() {
     loadScans();
   }, []);
 
-  const filtered = scans.filter((s) => {
-    if (typeFilter !== "All" && s.type !== typeFilter) return false;
-    return true;
-  });
+  const cutoff = new Date();
+  if (timeFilter === "today") cutoff.setHours(0, 0, 0, 0);
+  else cutoff.setDate(cutoff.getDate() - (timeFilter === "week" ? 7 : 30));
+  const filtered = scans.filter((scan) =>
+    (typeFilter === "All" || scan.type === typeFilter) && scan.timestamp >= cutoff.getTime()
+  );
 
   // Group by date
   const grouped = filtered.reduce<Record<string, ScanEntry[]>>((acc, scan) => {
@@ -202,7 +161,7 @@ export default function ReportsPage() {
     return acc;
   }, {});
 
-  const typeFilters: ("All" | ScanType)[] = ["All", "Phishing", "File", "UPI"];
+  const typeFilters: ("All" | ScanType)[] = ["All", "Phishing", "File", "UPI", "Network"];
   const timeFilters: { label: string; value: TimeFilter }[] = [
     { label: "Today", value: "today" },
     { label: "Week", value: "week" },
@@ -251,9 +210,13 @@ export default function ReportsPage() {
         </Card>
 
         {/* Results */}
-        {filtered.length === 0 ? (
+        {loading ? (
+          <p role="status" className="py-16 text-center text-text-secondary">Loading scan history…</p>
+        ) : loadError ? (
+          <p role="alert" className="py-16 text-center text-text-secondary">Scan history could not be loaded.</p>
+        ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center py-16 text-center">
-            <p className="font-display text-lg font-semibold text-text-primary">No scans yet.</p>
+            <p className="font-display text-lg font-semibold text-text-primary">{scans.length > 0 ? "No scans match these filters." : "No scans yet."}</p>
             <p className="mt-2 text-sm text-text-secondary">Head to a tool to run your first check.</p>
             <Link href="/phishing" className="mt-6">
               <Button>Go to Phishing Checker</Button>
@@ -282,7 +245,7 @@ export default function ReportsPage() {
                         </span>
                         <span className="hidden text-xs text-text-muted sm:inline">{scan.type}</span>
                         <span className="text-xs text-text-muted">{scan.time}</span>
-                        <RiskBadge risk={scan.risk} />
+                        <RiskBadge severity={riskSeverity[scan.risk]} />
                         {isExpanded ? (
                           <ChevronDown className="h-4 w-4 text-text-muted" />
                         ) : (
@@ -294,7 +257,7 @@ export default function ReportsPage() {
                         <div className="border-t border-dashed border-border px-4 pb-4 pt-2">
                           <ResultCard
                             verdict={scan.risk === "critical" ? "DANGEROUS" : scan.risk === "moderate" ? "SUSPICIOUS" : "CLEAN"}
-                            severity={scan.risk === "critical" ? "Critical" : scan.risk === "moderate" ? "Medium" : "None"}
+                            severity={riskSeverity[scan.risk]}
                             title={scan.result.title}
                             target={scan.target}
                             aiExplanation={scan.result.aiExplanation}
