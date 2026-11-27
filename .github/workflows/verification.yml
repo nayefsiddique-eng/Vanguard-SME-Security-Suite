@@ -1,0 +1,59 @@
+name: Vanguard verification
+on:
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  verification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 17
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Type check and build the frontend
+        working-directory: frontend
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+        run: |
+          npm ci
+          npm run build
+      - name: Exercise PostgreSQL and ClamAV in disposable Compose services
+        shell: bash
+        run: |
+          set -euo pipefail
+          export VANGUARD_POSTGRES_PASSWORD="$(openssl rand -hex 24)"
+          export VANGUARD_SECRET_KEY="$(openssl rand -hex 32)"
+          echo "::add-mask::$VANGUARD_POSTGRES_PASSWORD"
+          echo "::add-mask::$VANGUARD_SECRET_KEY"
+          export VANGUARD_DATABASE_URL="postgresql://vanguard:$VANGUARD_POSTGRES_PASSWORD@db:5432/vanguard_soc"
+          echo "::add-mask::$VANGUARD_DATABASE_URL"
+          fixtures="$(mktemp -d)"
+          cleanup() {
+            docker compose -f docker-compose.yml -f "$fixtures/compose.yml" down --volumes --remove-orphans
+            rm -rf -- "$fixtures"
+          }
+          trap cleanup EXIT
+          export COMPOSE_PROJECT_NAME="vanguard-ci-${GITHUB_RUN_ID}"
+          printf 'vanguard CI harmless sample for the local signature database\n' > "$fixtures/sample.txt"
+          printf '%s:%s:Vanguard.CI.Synthetic\n' "$(md5sum "$fixtures/sample.txt" | cut -d' ' -f1)" "$(wc -c < "$fixtures/sample.txt" | tr -d ' ')" > "$fixtures/fixture.hdb"
+          chmod 755 "$fixtures"
+          cat > "$fixtures/compose.yml" <<COMPOSE
+          services:
+            web:
+              volumes:
+                - "$fixtures/fixture.hdb:/var/lib/clamav/fixture.hdb:ro"
+          networks:
+            default:
+              internal: true
+          COMPOSE
+          docker compose -f docker-compose.yml -f "$fixtures/compose.yml" up --build -d --wait --wait-timeout 120
+          docker compose -f docker-compose.yml -f "$fixtures/compose.yml" exec -T web sh -c 'test "$(id -u)" -ne 0'
+          docker compose -f docker-compose.yml -f "$fixtures/compose.yml" exec -T web python - < scripts/verify-compose.py
+          docker compose -f docker-compose.yml -f "$fixtures/compose.yml" restart
+          docker compose -f docker-compose.yml -f "$fixtures/compose.yml" up -d --wait --wait-timeout 120
+          docker compose -f docker-compose.yml -f "$fixtures/compose.yml" exec -T web python - --restarted < scripts/verify-compose.py
