@@ -1,6 +1,3 @@
-import os
-import uuid
-import shutil
 import tempfile
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
@@ -26,45 +23,44 @@ from app.ml.feature_extractors import extract_phishing_features, extract_upi_fea
 
 logger = logging.getLogger(__name__)
 
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+
 router = APIRouter()
 
 @router.post("/api/scan/file", response_model=ScanResult)
-async def scan_file_endpoint(
+def scan_file_endpoint(
     file: UploadFile = File(...),
     current_user: str = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    suffix = os.path.splitext(file.filename or "")[1]
-    temp_filename = f"{uuid.uuid4()}{suffix}"
-    temp_path = os.path.join(tempfile.gettempdir(), temp_filename)
-    
-    try:
+    if file.size is not None and file.size > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="File exceeds the 10 MiB limit.")
+
+    with tempfile.TemporaryDirectory(prefix="vanguard-upload-") as directory:
+        temp_path = f"{directory}/upload"
+        total_bytes = 0
         with open(temp_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-        
+            while chunk := file.file.read(64 * 1024):
+                total_bytes += len(chunk)
+                if total_bytes > MAX_UPLOAD_BYTES:
+                    raise HTTPException(status_code=413, detail="File exceeds the 10 MiB limit.")
+                buffer.write(chunk)
         result = scan_file(temp_path)
-        result["target"] = file.filename
-        
-        correlate_scan_event("File Scan", file.filename, result, db)
-        
-        scan_record = ScanHistory(
-            scan_type="File Scan",
-            target=file.filename,
-            result=str(result),
-            user_email=current_user
-        )
-        db.add(scan_record)
-        db.commit()
-        return result
-    finally:
-        if os.path.exists(temp_path):
-            try:
-                os.remove(temp_path)
-            except Exception:
-                pass
+
+    result["target"] = file.filename
+    correlate_scan_event("File Scan", file.filename, result, db)
+    db.add(ScanHistory(
+        scan_type="File Scan",
+        target=file.filename,
+        result=str(result),
+        user_email=current_user,
+    ))
+    db.commit()
+    return result
+
 
 @router.post("/api/scan/url", response_model=ScanResult)
-async def scan_url_endpoint(
+def scan_url_endpoint(
     body: URLScanRequest,
     current_user: str = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -83,7 +79,7 @@ async def scan_url_endpoint(
     return result
 
 @router.post("/api/scan/network", response_model=ScanResult)
-async def scan_network_endpoint(
+def scan_network_endpoint(
     body: NetworkScanRequest,
     current_user: str = Depends(get_current_user),
     db: Session = Depends(get_db)

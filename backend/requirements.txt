@@ -1,15 +1,17 @@
-fastapi==0.110.0
+fastapi==0.165.0
 uvicorn==0.28.0
 sqlalchemy==2.0.28
 slowapi==0.1.9
-requests==2.31.0
-python-multipart==0.0.9
-python-dotenv==1.0.1
-python-jose==3.3.0
+requests==2.34.2
+python-multipart==0.0.34
+python-dotenv==1.2.4
+email-validator==2.3.0
+PyJWT==2.15.1
 passlib[bcrypt]==1.7.4
 bcrypt==4.1.2
 psycopg2-binary==2.9.9
 # ML dependencies
-scikit-learn
+scikit-learn==1.9.0
 numpy
 joblib
+starlette==1.10.0

@@ -1,5 +1,5 @@
+import shutil
 import subprocess
-import json
 import os
 
 THREAT_RULES = {
@@ -84,56 +84,50 @@ def classify_threat(signature):
     return "unknown"
 
 def scan_file(filepath):
-    if not os.path.exists(filepath):
-        return {"error": "File not found: " + filepath}
-    
-    try:
-        cmd = [r"C:\Program Files\ClamAV\clamscan.exe", "--no-summary", filepath]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-        output_lines = result.stdout.strip().split("\n")
-        
-        scan_result = {
-            "tool": "clamav",
-            "file": filepath,
-            "verdict": "CLEAN",
-            "threat_name": None,
-            "threat_type": None,
-            "severity": "None",
-            "summary": "This file is clean. No threats were detected.",
-            "actions": ["No action needed. The file is safe to open."]
-        }
-        for line in output_lines:
-            if "FOUND" in line:
-                parts = line.split(":")
-                if len(parts) >= 2:
-                    signature = ":".join(parts[1:]).replace("FOUND", "").strip()
-                    threat_type = classify_threat(signature)
-                    scan_result["verdict"] = "INFECTED"
-                    scan_result["threat_name"] = signature
-                    scan_result["threat_type"] = threat_type
-                    scan_result["severity"] = THREAT_SEVERITY[threat_type]
-                    scan_result["summary"] = THREAT_SUMMARY[threat_type]
-                    scan_result["actions"] = THREAT_ACTIONS[threat_type]
-        return scan_result
-    except Exception as e:
-        basename = os.path.basename(filepath).lower()
-        is_exe = basename.endswith(".exe")
-        is_safe = "safe" in basename or basename.endswith(".pdf") or basename.endswith(".txt")
-        
-        verdict = "INFECTED" if is_exe else "CLEAN" if is_safe else "SUSPICIOUS"
-        threat_type = "ransomware" if is_exe else "unknown"
-        severity = THREAT_SEVERITY[threat_type] if is_exe else "None" if is_safe else "Medium"
-        summary = THREAT_SUMMARY[threat_type] if is_exe else "This file is clean. No threats were detected." if is_safe else "This file looks suspicious. Exercise caution."
-        actions = THREAT_ACTIONS[threat_type] if is_exe else ["No action needed. The file is safe to open."] if is_safe else ["Do not open this file until verified.", "Run an antivirus scan."]
-
+    def unavailable(summary):
         return {
-            "tool": "clamav_mock",
-            "file": filepath,
-            "verdict": verdict,
-            "threat_name": "Win.Ransomware.MockWannaCry" if is_exe else None,
-            "threat_type": threat_type if not is_safe else None,
-            "severity": severity,
+            "tool": "clamav",
+            "verdict": "ERROR",
+            "severity": "None",
             "summary": summary,
-            "actions": actions,
-            "note": "ClamAV executable not found or errored. Using heuristic scanner."
+            "actions": ["Check the ClamAV installation and signature database, then retry."],
         }
+
+    binary = os.getenv("CLAMAV_EXECUTABLE") or shutil.which("clamscan")
+    if not binary and os.name == "nt":
+        binary = r"C:\Program Files\ClamAV\clamscan.exe"
+    if not binary:
+        return unavailable("ClamAV is unavailable.")
+    try:
+        result = subprocess.run(
+            [binary, "--no-summary", filepath],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return unavailable("ClamAV could not complete the scan.")
+
+    if result.returncode == 0:
+        return {
+            "tool": "clamav",
+            "verdict": "CLEAN",
+            "severity": "None",
+            "summary": "ClamAV did not detect a known signature.",
+            "actions": ["Use your normal file handling precautions."],
+        }
+
+    if result.returncode == 1:
+        for line in result.stdout.splitlines():
+            if line.endswith(" FOUND") and ": " in line:
+                signature = line.rsplit(": ", 1)[-1].removesuffix(" FOUND")
+                threat_type = classify_threat(signature)
+                return {
+                    "tool": "clamav",
+                    "verdict": "INFECTED",
+                    "threat_name": signature,
+                    "threat_type": threat_type,
+                    "severity": THREAT_SEVERITY[threat_type],
+                    "summary": THREAT_SUMMARY[threat_type],
+                    "actions": THREAT_ACTIONS[threat_type],
+                }
+        return unavailable("ClamAV reported a detection without a readable result.")
+    return unavailable("ClamAV could not complete the scan.")

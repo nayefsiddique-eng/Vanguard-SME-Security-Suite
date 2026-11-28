@@ -569,15 +569,9 @@ export default function MLPredictorPage() {
     }
   }, []);
 
-  const handleSignOut = () => {
-    localStorage.clear();
-    sessionStorage.clear();
-    window.location.href = "/login";
-  };
-
   return (
-    <AppLayout sidebar={{ onSignOut: handleSignOut }}>
-      <TopBar title="ML Threat Predictor" userEmail={user} />
+    <AppLayout>
+      <TopBar title="ML Threat Predictor" subtitle={user || undefined} />
 
       <div className="mx-auto max-w-3xl space-y-6 px-4 py-8">
         {/* Hero */}
