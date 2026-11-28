@@ -6,7 +6,6 @@
 [![FastAPI](https://img.shields.io/badge/backend-FastAPI-009688.svg)](https://fastapi.tiangolo.com/)
 [![Next.js](https://img.shields.io/badge/frontend-Next.js%2014-black.svg)](https://nextjs.org/)
 [![scikit-learn](https://img.shields.io/badge/ML-scikit--learn-F7931E.svg)](https://scikit-learn.org/)
-[![License](https://img.shields.io/badge/license-MIT-lightgrey.svg)](LICENSE)
 
 ---
 
@@ -174,3 +173,17 @@ The connection URL must use the same database password with URL encoding when
 needed. The API port binds to loopback. PostgreSQL stays on the Compose network.
 Provide a current ClamAV signature database at `/var/lib/clamav` for live
 malware scanning. Missing signatures or scanner failures return an error.
+
+### Upgrading a legacy PostgreSQL database
+
+Fresh databases are initialized at startup. Older schemas may lack
+`users.role` and `scan_history.timestamp`. The startup command creates
+missing tables and leaves existing table definitions intact.
+
+Test the [operator migration](backend/migrations/001_legacy_postgresql.sql)
+against a restored copy first. Schedule downtime, take a verified backup,
+and run the SQL file with PostgreSQL `psql` and `ON_ERROR_STOP=1` before
+starting the current application. The migration backfills previously
+unassigned accounts as Read Only and leaves unknown historical timestamps
+blank. Review legacy account grants individually and verify login and scan
+ownership after startup.
